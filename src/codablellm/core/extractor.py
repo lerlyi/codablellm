@@ -1,17 +1,22 @@
 import importlib
 
 from abc import ABC, abstractmethod
-from typing import Dict, Final, Iterable, List, Sequence
+from pathlib import Path
+from typing import Dict, Final, Iterable, List, OrderedDict, Sequence
 from codablellm.core.function import Function
 from codablellm.core.utils import PathLike
 
-EXTRACTORS: Final[Dict[str, str]] = {}
+EXTRACTORS: Final[OrderedDict[str, str]] = OrderedDict({})
 
 
 class Extractor(ABC):
 
     @abstractmethod
     def extract(self, path: PathLike) -> Sequence[Function]:
+        pass
+
+    @abstractmethod
+    def get_extractable_files(self, path: PathLike) -> Sequence[Path]:
         pass
 
 
