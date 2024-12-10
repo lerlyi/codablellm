@@ -1,3 +1,10 @@
+from pathlib import Path
+from typing import Union
+
+
+PathLike = Union[Path, str, bytes]
+
+
 def get_readable_file_size(size: int) -> str:
     '''
     Converts number of bytes to a human readable output (i.e. bytes, KB, MB, GB, TB.)
