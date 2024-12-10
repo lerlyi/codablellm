@@ -29,4 +29,5 @@ def get_extractor(language: str) -> Extractor:
 
 
 def extract(path: PathLike, languages: Iterable[str] = EXTRACTORS.keys()) -> List[Function]:
-    return [f for l in languages for f in get_extractor(l).extract(path)]
+    return [f for l in languages
+            for f in get_extractor(l).extract(path)]

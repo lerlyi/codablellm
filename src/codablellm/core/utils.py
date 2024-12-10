@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Union
 
 
-PathLike = Union[Path, str, bytes]
+PathLike = Union[Path, str]
 
 
 def get_readable_file_size(size: int) -> str:
@@ -24,3 +24,21 @@ def get_readable_file_size(size: int) -> str:
         if measurement >= 1:
             return f'{measurement} {suffix}'
     return f'{size} bytes'
+
+def is_binary(file_path: PathLike) -> bool:
+    '''
+    Checks if a file is a binary file.
+
+    Parameters:
+        file_path: Path to a potential binary file.
+
+    Returns:
+        True if the file is a binary.
+    '''
+    file_path = Path(file_path)
+    if file_path.is_file():
+        with open(file_path, 'rb') as file:
+            # Read the first 1KB of the file and check for a null byte or non-printable characters
+            chunk = file.read(1024)
+            return b'\0' in chunk or any(byte > 127 for byte in chunk)
+    return False
