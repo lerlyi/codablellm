@@ -19,6 +19,7 @@ TREE_SITTER_QUERY: Final[str] = (
 
 class CExtractor(Extractor):
 
+    NAME: Final[str] = 'C'
     LANGUAGE: Final[Language] = Language(tsc.language())
     PARSER: Final[Parser] = Parser(LANGUAGE)
 
@@ -34,10 +35,11 @@ class CExtractor(Extractor):
             if not function_definition.text or function_name.text:
                 raise ValueError('Expected function.name and function.definition to have '
                                  'text')
-            functions.append(SourceFunction.from_source(path, function_definition.text.decode(),
-                                                          function_definition.text.decode(),
-                                                          function_definition.start_byte,
-                                                          function_definition.end_byte))
+            functions.append(SourceFunction.from_source(path, CExtractor.NAME,
+                                                        function_definition.text.decode(),
+                                                        function_definition.text.decode(),
+                                                        function_definition.start_byte,
+                                                        function_definition.end_byte))
         return functions
 
     def get_extractable_files(self, path: utils.PathLike) -> Sequence[Path]:

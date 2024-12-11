@@ -4,7 +4,7 @@ from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Tuple, Un
 from codablellm.core import decompiler
 from codablellm.core import extractor
 from codablellm.core import utils
-from codablellm.core.function import CompiledFunction, SourceFunction, Subroutine
+from codablellm.core.function import DecompiledFunction, SourceFunction, Subroutine
 from pandas import DataFrame
 
 
@@ -43,19 +43,19 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
         return cls(extractor.extract(path, **utils.resolve_kwargs(languages=languages)))
 
 
-class CompiledCodeDataset(Dataset, Mapping[str, Tuple[CompiledFunction, SourceCodeDataset]]):
+class CompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, SourceCodeDataset]]):
 
     def __init__(self,
-                 mappings: Iterable[Tuple[CompiledFunction, SourceCodeDataset]]) -> None:
+                 mappings: Iterable[Tuple[DecompiledFunction, SourceCodeDataset]]) -> None:
         super().__init__()
         self._mapping: Dict[str,
-                            Tuple[CompiledFunction, SourceCodeDataset]
+                            Tuple[DecompiledFunction, SourceCodeDataset]
                             ] = {
                                 m[0].uid: m for m in mappings
         }
 
-    def __getitem__(self, key: Union[str, CompiledFunction]) -> Tuple[CompiledFunction, SourceCodeDataset]:
-        if isinstance(key, CompiledFunction):
+    def __getitem__(self, key: Union[str, DecompiledFunction]) -> Tuple[DecompiledFunction, SourceCodeDataset]:
+        if isinstance(key, DecompiledFunction):
             return self[key.uid]
         return self._mapping[key]
 
@@ -68,7 +68,7 @@ class CompiledCodeDataset(Dataset, Mapping[str, Tuple[CompiledFunction, SourceCo
     def to_df(self) -> DataFrame:
         return DataFrame.from_dict(self._mapping)
 
-    def lookup(self, key: Union[str, SourceFunction]) -> List[Tuple[CompiledFunction, SourceCodeDataset]]:
+    def lookup(self, key: Union[str, SourceFunction]) -> List[Tuple[DecompiledFunction, SourceCodeDataset]]:
         return [m for m in self.values() if key in m[1]]
 
     def to_source_code_dataset(self) -> SourceCodeDataset:
@@ -83,9 +83,12 @@ class CompiledCodeDataset(Dataset, Mapping[str, Tuple[CompiledFunction, SourceCo
 
         if not any(bins):
             raise ValueError('Must at least specify one binary')
+        # Decompile binaries
         compiled_functions = [f for b in bins for f in decompiler.decompile(b)]
+        # Extract source code functions
         source_dataset = SourceCodeDataset.from_repository(path,
                                                            **utils.resolve_kwargs(languages=languages))
+        # Create mappings of potential source code functions to be matched
         potential_mappings: Dict[str, List[SourceFunction]] = {}
         for source_function in source_dataset.values():
             potential_mappings.setdefault(get_potential_key(source_function),

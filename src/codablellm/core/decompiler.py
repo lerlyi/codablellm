@@ -2,7 +2,7 @@ import importlib
 
 from abc import ABC, abstractmethod
 from typing import Dict, Final, TypedDict, Sequence
-from codablellm.core.function import CompiledFunction
+from codablellm.core.function import DecompiledFunction
 from codablellm.core.utils import PathLike
 
 
@@ -20,7 +20,7 @@ DECOMPILER: Final[NamedDecompiler] = {
 class Decompiler(ABC):
 
     @abstractmethod
-    def decompile(self, path: PathLike) -> Sequence[CompiledFunction]:
+    def decompile(self, path: PathLike) -> Sequence[DecompiledFunction]:
         pass
 
 
@@ -30,5 +30,5 @@ def get_decompiler() -> Decompiler:
     return getattr(module, class_name)()
 
 
-def decompile(path: PathLike) -> Sequence[CompiledFunction]:
+def decompile(path: PathLike) -> Sequence[DecompiledFunction]:
     return get_decompiler().decompile(path)

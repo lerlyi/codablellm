@@ -38,8 +38,8 @@ class SourceFunction(Subroutine):
 
 
 @dataclass(frozen=True)
-class CompiledFunction(Subroutine):
-    assembly: str
-    decompiled_definition: str
+class DecompiledFunction(Subroutine):
+    definition: str
     name: str
+    assembly: str
     architecture: str

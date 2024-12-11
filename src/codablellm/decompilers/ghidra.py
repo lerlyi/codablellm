@@ -3,7 +3,7 @@ import os
 import subprocess
 
 from codablellm.core.decompiler import Decompiler
-from codablellm.core.function import CompiledFunction
+from codablellm.core.function import DecompiledFunction
 from codablellm.core import utils
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
@@ -16,7 +16,7 @@ class Ghidra(Decompiler):
     SCRIPT_PATH: Final[Path] = Path(__file__).parent.parent / 'resources' / 'ghidra_scripts' / \
         'decompile.py'
 
-    def decompile(self, path: utils.PathLike) -> Sequence[CompiledFunction]:
+    def decompile(self, path: utils.PathLike) -> Sequence[DecompiledFunction]:
         # Ensure Ghidra is installed
         ghidra_path = Ghidra.get_path()
         if not ghidra_path:
