@@ -2,17 +2,19 @@ import importlib
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Dict, Final, Iterable, List, OrderedDict, Sequence
-from codablellm.core.function import Function
+from typing import Final, Iterable, List, OrderedDict, Sequence
+from codablellm.core.function import SourceFunction
 from codablellm.core.utils import PathLike
 
-EXTRACTORS: Final[OrderedDict[str, str]] = OrderedDict({})
+EXTRACTORS: Final[OrderedDict[str, str]] = OrderedDict({
+    'C': 'codablellm.languages.c.CExtractor'
+})
 
 
 class Extractor(ABC):
 
     @abstractmethod
-    def extract(self, path: PathLike) -> Sequence[Function]:
+    def extract(self, path: PathLike) -> Sequence[SourceFunction]:
         pass
 
     @abstractmethod
@@ -28,6 +30,6 @@ def get_extractor(language: str) -> Extractor:
     raise ValueError(f'Unsupported language: {language}')
 
 
-def extract(path: PathLike, languages: Iterable[str] = EXTRACTORS.keys()) -> List[Function]:
+def extract(path: PathLike, languages: Iterable[str] = EXTRACTORS.keys()) -> List[SourceFunction]:
     return [f for l in languages
             for f in get_extractor(l).extract(path)]

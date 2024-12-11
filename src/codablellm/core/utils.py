@@ -1,8 +1,24 @@
+from ast import TypeVar
 from pathlib import Path
-from typing import Union
+from typing import Any, Dict, List, Optional, Protocol, Type, Union
 
 
 PathLike = Union[Path, str]
+JSONValue = Optional[Union[str, int, float,
+                           bool, List['JSONValue'], 'JSONObject']]
+JSONObject = Dict[str, JSONValue]
+
+T = TypeVar('T', bound='SupportsJSON')  # type: ignore
+
+
+class SupportsJSON(Protocol):
+
+    def to_json(self) -> JSONObject:
+        ...
+
+    @classmethod
+    def from_json(cls: Type[T], json_obj: JSONObject) -> T:  # type: ignore
+        ...
 
 
 def get_readable_file_size(size: int) -> str:
@@ -25,6 +41,7 @@ def get_readable_file_size(size: int) -> str:
             return f'{measurement} {suffix}'
     return f'{size} bytes'
 
+
 def is_binary(file_path: PathLike) -> bool:
     '''
     Checks if a file is a binary file.
@@ -42,3 +59,7 @@ def is_binary(file_path: PathLike) -> bool:
             chunk = file.read(1024)
             return b'\0' in chunk or any(byte > 127 for byte in chunk)
     return False
+
+
+def resolve_kwargs(**kwargs: Any) -> Dict[str, Any]:
+    return {k: v for k, v in kwargs.items() if v is not None}
