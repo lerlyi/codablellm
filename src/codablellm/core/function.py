@@ -5,13 +5,14 @@ from typing import Optional
 
 
 @dataclass(frozen=True)
-class Function:
+class Subroutine:
     uid: str
     path: Path
 
 
 @dataclass(frozen=True)
-class SourceFunction(Function):
+class SourceFunction(Subroutine):
+    language: str
     definition: str
     name: str
     start_byte: int
@@ -20,6 +21,7 @@ class SourceFunction(Function):
     def with_definition(self, definition: str, name: Optional[str] = None,
                         write_back: bool = True) -> 'SourceFunction':
         source_function = SourceFunction(f'{self.path}:{name}' if name else self.uid, self.path,
+                                         self.language,
                                          definition, name if name else self.name, self.start_byte,
                                          self.start_byte + len(definition))
         if write_back:
@@ -30,11 +32,14 @@ class SourceFunction(Function):
         return source_function
 
     @classmethod
-    def from_source(cls, path: Path, definition: str, name: str, start_byte: int,
+    def from_source(cls, path: Path, language: str, definition: str, name: str, start_byte: int,
                     end_byte: int) -> 'SourceFunction':
-        return cls(f'{path}:{name}', path, definition, name, start_byte, end_byte)
+        return cls(f'{path}:{name}', path, language, definition, name, start_byte, end_byte)
 
 
 @dataclass(frozen=True)
-class CompiledFunction(Function):
-    pass
+class CompiledFunction(Subroutine):
+    assembly: str
+    decompiled_definition: str
+    name: str
+    architecture: str

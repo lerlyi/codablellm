@@ -8,12 +8,12 @@ from codablellm.core.utils import PathLike
 
 class NamedDecompiler(TypedDict):
     name: str
-    class_import: str
+    class_path: str
 
 
 DECOMPILER: Final[NamedDecompiler] = {
     'name': 'Ghidra',
-    'class_import': 'codablellm.decompilers.ghidra.Ghidra'
+    'class_path': 'codablellm.decompilers.ghidra.Ghidra'
 }
 
 
@@ -25,7 +25,7 @@ class Decompiler(ABC):
 
 
 def get_decompiler() -> Decompiler:
-    module_path, class_name = DECOMPILER['class_import'].rsplit('.', 1)
+    module_path, class_name = DECOMPILER['class_path'].rsplit('.', 1)
     module = importlib.import_module(module_path)
     return getattr(module, class_name)()
 

@@ -3,8 +3,8 @@ import logging
 
 from click import BadParameter
 from codablellm import __version__
+from codablellm.core import decompiler as codablellm_decompiler
 from codablellm.core import downloader
-from codablellm.core import utils
 from codablellm.core.extractor import EXTRACTORS
 from codablellm.core.function import SourceFunction
 from codablellm.dataset import CompiledCodeDataset, Dataset, SourceCodeDataset
@@ -103,6 +103,11 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
             downloader.clone(url, repo)
         else:
             downloader.decompress(url, repo)
+    if decompiler:
+        # Configure decompiler
+        name, class_path = decompiler
+        codablellm_decompiler.DECOMPILER['name'] = name
+        codablellm_decompiler.DECOMPILER['class_path'] = class_path
     if extractors:
         # Configure function extractors
         operation, config_file = extractors
@@ -115,8 +120,8 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
                                param_hint='--extractors') from e
         if operation == ExtractorOperation.REWRITE:
             EXTRACTORS.clear()
-        for language, import_path in configured_extractors.items():
-            EXTRACTORS[language] = import_path
+        for language, class_path in configured_extractors.items():
+            EXTRACTORS[language] = class_path
             if operation != ExtractorOperation.REWRITE:
                 EXTRACTORS.move_to_end(
                     language, last=operation == ExtractorOperation.APPEND
