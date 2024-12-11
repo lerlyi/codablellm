@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Tuple, Union
+from codablellm.core import decompiler
 from codablellm.core import extractor
 from codablellm.core import utils
 from codablellm.core.function import CompiledFunction, SourceFunction
@@ -78,6 +79,8 @@ class CompiledCodeDataset(Dataset, Mapping[str, Tuple[CompiledFunction, SourceCo
                         languages: Optional[Sequence[extractor.Extractor]] = None) -> 'CompiledCodeDataset':
         if not any(bins):
             raise ValueError('Must at least specify one binary')
-        src_dataset = SourceCodeDataset.from_repository(path,
-                                                        **utils.resolve_kwargs(languages=languages))
+        compiled_functions = [f for b in bins for f in decompiler.decompile(b)]
+        source_dataset = SourceCodeDataset.from_repository(path,
+                                                           **utils.resolve_kwargs(languages=languages))
+        
         return cls()

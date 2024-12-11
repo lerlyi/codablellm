@@ -22,7 +22,7 @@ app = Typer()
 class ExtractorOperation(str, Enum):
     PREPEND = 'prepend'
     APPEND = 'append'
-    REWRITE = 'rewrite'
+    REWRITE = 'set'
 
 # Argument/option validation callbacks
 
@@ -76,7 +76,7 @@ DECOMPILER: Final[Optional[Tuple[str, str]]] = Option(None, help='Decompiler to 
 DEBUG: Final[bool] = Option(False, '--debug', callback=toggle_debug_logging,
                             hidden=True)
 EXTRACTORS_ARG: Final[Optional[Tuple[ExtractorOperation, Path]]] = Option(None, dir_okay=False, exists=True,
-                                                                          metavar='<[prepend|append|rewrite] FILE>',
+                                                                          metavar='<[prepend|append|set] FILE>',
                                                                           help='Order of extractors '
                                                                           'to use, including custom ones.')
 GIT: Final[bool] = Option(False, '--git / --archive', help='Determines whether --url is a Git '
@@ -85,7 +85,7 @@ VERBOSE: Final[bool] = Option(False, '--verbose', '-v',
                               callback=toggle_logging,
                               help='Display verbose logging information.')
 VERSION: Final[bool] = Option(False, '--version', is_eager=True, callback=show_version,
-                              help='Shows the installed version of codablellm.')
+                              help='Shows the installed version of codablellm and exit.')
 URL: Final[str] = Option('', help='Download a remote repository and save at the local path '
                          'specified by the REPO argument.')
 
