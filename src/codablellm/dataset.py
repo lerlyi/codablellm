@@ -4,7 +4,7 @@ from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Tuple, Un
 from codablellm.core import decompiler
 from codablellm.core import extractor
 from codablellm.core import utils
-from codablellm.core.function import DecompiledFunction, SourceFunction, Subroutine
+from codablellm.core.function import DecompiledFunction, SourceFunction, Function
 from pandas import DataFrame
 
 
@@ -78,8 +78,8 @@ class CompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Source
     def from_repository(cls, path: utils.PathLike, bins: Sequence[utils.PathLike],
                         languages: Optional[Sequence[extractor.Extractor]] = None) -> 'CompiledCodeDataset':
 
-        def get_potential_key(subroutine: Subroutine) -> str:
-            return subroutine.uid.rsplit(':', maxsplit=1)[1].rsplit('.', maxsplit=1)[1]
+        def get_potential_key(function: Function) -> str:
+            return function.uid.rsplit(':', maxsplit=1)[1].rsplit('.', maxsplit=1)[1]
 
         if not any(bins):
             raise ValueError('Must at least specify one binary')
