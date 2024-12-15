@@ -7,7 +7,7 @@ from codablellm.core.function import SourceFunction
 from codablellm.core.utils import PathLike
 from concurrent.futures import Future, ProcessPoolExecutor
 from pathlib import Path
-from typing import Any, Final, Generator, Iterable, List, Literal, Mapping, Optional, OrderedDict, Sequence
+from typing import Any, Final, Generator, Iterable, List, Literal, Mapping, Optional, OrderedDict, Sequence, Union
 
 from codablellm.dashboard import ProcessPoolProgress, Progress
 
@@ -54,30 +54,10 @@ def _extract(language: str, path: PathLike) -> Sequence[SourceFunction]:
     return get_extractor(language).extract(path)
 
 
-def extract(path: PathLike) -> List[SourceFunction]:
+def extract(path: PathLike, get_progress: bool = False) -> Generator[Union[ProcessPoolProgress, SourceFunction], None, None]:
 
     with ProcessPoolProgress(_extract, EXTRACTORS.keys(), Progress('Extracting functions...'),
                              submit_args=(path,)) as progress:
-        a = next(progress)
-
-    def callback(future: Future, results: List[SourceFunction], errors: List[int]) -> None:
-        if not future.cancelled():
-            exception = future.exception()
-            if exception:
-                errors[0] += 1
-            else:
-                results.append(future.result())
-
-    new_results: List[SourceFunction] = []
-    extracted_functions: List[SourceFunction] = []
-    errors = [0]
-    with ProcessPoolExecutor() as executor:
-        futures = [executor.submit(_extract, l, path)
-                   for l in EXTRACTORS.keys()]
-        for future in futures:
-            future.add_done_callback(lambda f: callback(f, new_results,
-                                                        errors))
-        while not all(f.done() for f in futures):
-            while any(new_results):
-                extracted_functions.append(new_results.pop())
-    return extracted_functions
+        if get_progress:
+            yield progress
+        yield from (f for e in progress for f in e)

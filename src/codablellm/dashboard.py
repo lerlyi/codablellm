@@ -1,10 +1,14 @@
 from collections.abc import Iterable as BaseIterable, Iterator
 from concurrent.futures import Future, ProcessPoolExecutor
+from contextlib import contextmanager
 from multiprocessing.context import BaseContext
 import time
 import logging
+from types import TracebackType
 from typing import Any, Callable, Concatenate, Generator, Generic, Iterable, List, Mapping, Optional, ParamSpec, Tuple, Type, TypeVar, Union
 from rich.console import Console
+from rich.table import Table
+from rich.live import Live
 from rich.progress import Progress as BaseProgress, TaskID
 from rich.progress import BarColumn, GetTimeCallable, MofNCompleteColumn, ProgressColumn, \
     TextColumn, TimeElapsedColumn, TimeRemainingColumn
@@ -94,7 +98,7 @@ class ProcessPoolProgress(Iterator[R], Generic[I, R]):
         self._submit_args = submit_args
         self._submit_kwargs = submit_kwargs
 
-    def __enter__(self) -> Generator['ProcessPoolProgress[I, R]', None, None]:
+    def __enter__(self) -> 'ProcessPoolProgress[I, R]':
 
         def callback(future: Future) -> None:
             nonlocal self
@@ -108,17 +112,19 @@ class ProcessPoolProgress(Iterator[R], Generic[I, R]):
                     self._new_results.append(future.result())
                     self._progress.advance()
 
-        with self._progress:
-            with self._process_pool_executor as executor:
-                self._futures = [executor.submit(self._submit, i, *self._submit_args,
-                                                 **self._submit_kwargs)
-                                 for i in self._iterables]
-                for future in self._futures:
-                    future.add_done_callback(callback)
-                yield self
+        self._progress.__enter__()
+        self._process_pool_executor.__enter__()
+        self._futures = [self._process_pool_executor.submit(self._submit, i, *self._submit_args,
+                                                            **self._submit_kwargs)
+                         for i in self._iterables]
+        for future in self._futures:
+            future.add_done_callback(callback)
+        return self
 
     def __exit__(self, exc_type: Optional[Type[BaseException]], exc_value: Optional[BaseException],
-                 traceback: Optional[object]) -> None:
+                 traceback: Optional[TracebackType]) -> None:
+        self._progress.__exit__(exc_type, exc_value, traceback)
+        self._process_pool_executor.__exit__(exc_type, exc_value, traceback)
         self._futures.clear()
 
     def __next__(self) -> R:
@@ -127,3 +133,12 @@ class ProcessPoolProgress(Iterator[R], Generic[I, R]):
                 time.sleep(0.1)
             return self._new_results.pop()
         raise StopIteration()
+
+    @staticmethod
+    @contextmanager
+    def multi_progress(*pools: 'ProcessPoolProgress[Any, Any]') -> Generator[Tuple[Live, int, Any], None, None]:
+        table = Table.grid()
+        for pool in pools:
+            table.add_row(pool._progress)
+        with Live(table) as live:
+            yield (live, 0, None)
