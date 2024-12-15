@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Tuple, Union
 from codablellm.core import decompiler
 from codablellm.core import extractor
@@ -9,10 +10,30 @@ from pandas import DataFrame
 
 
 class Dataset(ABC):
-
+    
     @abstractmethod
     def to_df(self) -> DataFrame:
         pass
+
+    def save_as(self, path: utils.PathLike) -> None:
+        path = Path(path)
+        extension = path.suffix.casefold()
+        if extension in [e.casefold() for e in ['.json', '.jsonl']]:
+            self.to_df().to_json(path, lines=extension == '.jsonl'.casefold())
+        elif extension in [e.casefold() for e in ['.csv', '.tsv']]:
+            self.to_df().to_csv(sep=',' if extension == '.csv'.casefold() else '\t')
+        elif extension in [e.casefold() for e in ['.xlsx', '.xls', '.xlsm']]:
+            self.to_df().to_excel(path)
+        elif extension in [e.casefold() for e in ['.md', '.markdown']]:
+            self.to_df().to_markdown(path)
+        elif extension == '.tex'.casefold():
+            self.to_df().to_latex(path)
+        elif extension in [e.casefold() for e in ['.html', '.htm']]:
+            self.to_df().to_html(path)
+        elif extension == '.xml'.casefold():
+            self.to_df().to_xml(path)
+        else:
+            raise ValueError(f'Unsupported file extension: {path.suffix}')
 
 
 class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
@@ -39,11 +60,11 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
 
     @classmethod
     def from_repository(cls, path: utils.PathLike,
-                        languages: Optional[Sequence[extractor.Extractor]] = None) -> 'SourceCodeDataset':
+                        languages: Optional[Iterable[str]] = None) -> 'SourceCodeDataset':
         return cls(extractor.extract(path, **utils.resolve_kwargs(languages=languages)))
 
 
-class CompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, SourceCodeDataset]]):
+class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, SourceCodeDataset]]):
 
     def __init__(self,
                  mappings: Iterable[Tuple[DecompiledFunction, SourceCodeDataset]]) -> None:
@@ -76,7 +97,7 @@ class CompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Source
 
     @classmethod
     def from_repository(cls, path: utils.PathLike, bins: Sequence[utils.PathLike],
-                        languages: Optional[Sequence[extractor.Extractor]] = None) -> 'CompiledCodeDataset':
+                        languages: Optional[Sequence[extractor.Extractor]] = None) -> 'DecompiledCodeDataset':
 
         def get_potential_key(function: Function) -> str:
             return function.uid.rsplit(':', maxsplit=1)[1].rsplit('.', maxsplit=1)[1]

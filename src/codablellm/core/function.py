@@ -1,7 +1,9 @@
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TypedDict, no_type_check
+
+from codablellm.core.utils import SupportsJSON, JSONObject
 
 
 @dataclass(frozen=True)
@@ -52,9 +54,27 @@ class SourceFunction(Function):
                    end_byte, class_name=class_name)
 
 
-@dataclass(frozen=True)
-class DecompiledFunction(Function):
+class DecompiledFunctionJSONObject(TypedDict):
+    uid: str
+    path: str
     definition: str
     name: str
     assembly: str
     architecture: str
+
+
+@dataclass(frozen=True)
+class DecompiledFunction(Function, SupportsJSON[DecompiledFunctionJSONObject]):
+    definition: str
+    name: str
+    assembly: str
+    architecture: str
+
+    def to_json(self) -> DecompiledFunctionJSONObject:
+        return {'uid': self.uid, 'path': str(self.path), 'definition': self.definition,
+                'name': self.name, 'assembly': self.assembly, 'architecture': self.architecture}
+
+    @classmethod
+    def from_json(cls, json_obj: DecompiledFunctionJSONObject) -> 'DecompiledFunction':
+        return cls(json_obj['uid'], Path(json_obj['path']), json_obj['definition'],
+                   json_obj['name'], json_obj['assembly'], json_obj['architecture'])

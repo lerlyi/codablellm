@@ -1,6 +1,6 @@
 from ast import TypeVar
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Protocol, Type, Union
+from typing import Any, Dict, Generic, List, Optional, Protocol, Type, Union
 
 
 PathLike = Union[Path, str]
@@ -8,16 +8,18 @@ JSONValue = Optional[Union[str, int, float,
                            bool, List['JSONValue'], 'JSONObject']]
 JSONObject = Dict[str, JSONValue]
 
-T = TypeVar('T', bound='SupportsJSON')  # type: ignore
+JSONObject_T = TypeVar('JSONObject_T', bound=JSONObject)  # type: ignore
+SupportsJSON_T = TypeVar('SupportsJSON_T',
+                         bound='SupportsJSON')  # type: ignore
 
 
-class SupportsJSON(Protocol):
+class SupportsJSON(Protocol, Generic[JSONObject_T]):  # type: ignore
 
-    def to_json(self) -> JSONObject:
+    def to_json(self) -> JSONObject_T:  # type: ignore
         ...
 
     @classmethod
-    def from_json(cls: Type[T], json_obj: JSONObject) -> T:  # type: ignore
+    def from_json(cls: Type[SupportsJSON_T], json_obj: JSONObject_T) -> SupportsJSON_T:  # type: ignore
         ...
 
 
