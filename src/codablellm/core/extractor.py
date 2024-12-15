@@ -9,6 +9,8 @@ from concurrent.futures import Future, ProcessPoolExecutor
 from pathlib import Path
 from typing import Any, Final, Generator, Iterable, List, Literal, Mapping, Optional, OrderedDict, Sequence
 
+from codablellm.dashboard import ProcessPoolProgress, Progress
+
 EXTRACTORS: Final[OrderedDict[str, str]] = OrderedDict({
     'C': 'codablellm.languages.c.CExtractor'
 })
@@ -52,7 +54,11 @@ def _extract(language: str, path: PathLike) -> Sequence[SourceFunction]:
     return get_extractor(language).extract(path)
 
 
-def extract(path: PathLike, languages: Iterable[str] = EXTRACTORS.keys()) -> List[SourceFunction]:
+def extract(path: PathLike) -> List[SourceFunction]:
+
+    with ProcessPoolProgress(_extract, EXTRACTORS.keys(), Progress('Extracting functions...'),
+                             submit_args=(path,)) as progress:
+        a = next(progress)
 
     def callback(future: Future, results: List[SourceFunction], errors: List[int]) -> None:
         if not future.cancelled():
@@ -66,7 +72,8 @@ def extract(path: PathLike, languages: Iterable[str] = EXTRACTORS.keys()) -> Lis
     extracted_functions: List[SourceFunction] = []
     errors = [0]
     with ProcessPoolExecutor() as executor:
-        futures = [executor.submit(_extract, l, path) for l in languages]
+        futures = [executor.submit(_extract, l, path)
+                   for l in EXTRACTORS.keys()]
         for future in futures:
             future.add_done_callback(lambda f: callback(f, new_results,
                                                         errors))

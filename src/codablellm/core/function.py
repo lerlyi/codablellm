@@ -1,9 +1,9 @@
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, TypedDict, no_type_check
+from typing import Optional, TypedDict
 
-from codablellm.core.utils import SupportsJSON, JSONObject
+from codablellm.core.utils import SupportsJSON
 
 
 @dataclass(frozen=True)
@@ -64,7 +64,7 @@ class DecompiledFunctionJSONObject(TypedDict):
 
 
 @dataclass(frozen=True)
-class DecompiledFunction(Function, SupportsJSON[DecompiledFunctionJSONObject]):
+class DecompiledFunction(Function, SupportsJSON):
     definition: str
     name: str
     assembly: str

@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
+from concurrent.futures import Future, ProcessPoolExecutor
 from pathlib import Path
 from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Tuple, Union
 from codablellm.core import decompiler
@@ -8,9 +9,11 @@ from codablellm.core import utils
 from codablellm.core.function import DecompiledFunction, SourceFunction, Function
 from pandas import DataFrame
 
+from codablellm.dashboard import Progress
+
 
 class Dataset(ABC):
-    
+
     @abstractmethod
     def to_df(self) -> DataFrame:
         pass
@@ -59,9 +62,8 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
         return DataFrame.from_dict(self._mapping)
 
     @classmethod
-    def from_repository(cls, path: utils.PathLike,
-                        languages: Optional[Iterable[str]] = None) -> 'SourceCodeDataset':
-        return cls(extractor.extract(path, **utils.resolve_kwargs(languages=languages)))
+    def from_repository(cls, path: utils.PathLike) -> 'SourceCodeDataset':
+        return cls(extractor.extract(path))
 
 
 class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, SourceCodeDataset]]):
@@ -96,23 +98,41 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
         return SourceCodeDataset(f for _, d in self.values() for f in d.values())
 
     @classmethod
-    def from_repository(cls, path: utils.PathLike, bins: Sequence[utils.PathLike],
-                        languages: Optional[Sequence[extractor.Extractor]] = None) -> 'DecompiledCodeDataset':
+    def from_repository(cls, path: utils.PathLike, bins: Sequence[utils.PathLike]) -> 'DecompiledCodeDataset':
 
         def get_potential_key(function: Function) -> str:
             return function.uid.rsplit(':', maxsplit=1)[1].rsplit('.', maxsplit=1)[1]
 
+        def callback(future: Future, results: List[DecompiledFunction], errors: List[int]) -> None:
+            if not future.cancelled():
+                exception = future.exception()
+                if exception:
+                    errors[0] += 1
+                else:
+                    results.append(future.result())
+
         if not any(bins):
             raise ValueError('Must at least specify one binary')
         # Decompile binaries
-        compiled_functions = [f for b in bins for f in decompiler.decompile(b)]
+        new_results: List[DecompiledFunction] = []
+        decompiled_functions: List[DecompiledFunction] = []
+        errors = [0]
+        with Progress('Decompiling binaries...', total=len(bins)) as progress:
+            with ProcessPoolExecutor() as executor:
+                futures = [executor.submit(decompiler.decompile, b)
+                           for b in bins]
+                for future in futures:
+                    future.add_done_callback(lambda f: callback(f, new_results,
+                                                                errors))
+                while not all(f.done() for f in futures):
+                    while any(new_results):
+                        decompiled_functions.append(new_results.pop())
         # Extract source code functions
-        source_dataset = SourceCodeDataset.from_repository(path,
-                                                           **utils.resolve_kwargs(languages=languages))
+        source_dataset = SourceCodeDataset.from_repository(path)
         # Create mappings of potential source code functions to be matched
         potential_mappings: Dict[str, List[SourceFunction]] = {}
         for source_function in source_dataset.values():
             potential_mappings.setdefault(get_potential_key(source_function),
                                           []).append(source_dataset[source_function.uid])
-        return cls([(c, SourceCodeDataset(potential_mappings[get_potential_key(c)]))
-                    for c in compiled_functions if get_potential_key(c) in potential_mappings])
+        return cls([(d, SourceCodeDataset(potential_mappings[get_potential_key(d)]))
+                    for d in decompiled_functions if get_potential_key(d) in potential_mappings])

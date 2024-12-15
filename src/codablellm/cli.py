@@ -72,7 +72,10 @@ DECOMPILE: Final[bool] = Option(False, '--decompile / --source', '-d / -s',
                                 help='If the language supports decompiled code mapping, use '
                                 '--decompiler to decompile the binaries specified by the BINS '
                                 'argument and add decompiled code to the dataset.')
-DECOMPILER: Final[Optional[Tuple[str, str]]] = Option(None, help='Decompiler to use.',
+DECOMPILER: Final[Optional[Tuple[str, str]]] = Option((codablellm_decompiler.DECOMPILER['name'],
+                                                       codablellm_decompiler.DECOMPILER['class_path']
+                                                       ),
+                                                      help='Decompiler to use.',
                                                       metavar='<TEXT TEXT>')
 DEBUG: Final[bool] = Option(False, '--debug', callback=toggle_debug_logging,
                             hidden=True)

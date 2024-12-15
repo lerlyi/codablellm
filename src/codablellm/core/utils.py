@@ -13,7 +13,7 @@ SupportsJSON_T = TypeVar('SupportsJSON_T',
                          bound='SupportsJSON')  # type: ignore
 
 
-class SupportsJSON(Protocol, Generic[JSONObject_T]):  # type: ignore
+class SupportsJSON(Protocol):
 
     def to_json(self) -> JSONObject_T:  # type: ignore
         ...
