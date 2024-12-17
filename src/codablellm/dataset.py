@@ -1,15 +1,16 @@
 from abc import ABC, abstractmethod
+from collections import deque
 from collections.abc import Mapping
 from concurrent.futures import Future, ProcessPoolExecutor
 from pathlib import Path
-from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Tuple, Union
+from typing import Deque, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple, Union
 from codablellm.core import decompiler
 from codablellm.core import extractor
 from codablellm.core import utils
 from codablellm.core.function import DecompiledFunction, SourceFunction, Function
 from pandas import DataFrame
 
-from codablellm.dashboard import Progress
+from codablellm.dashboard import ProcessPoolProgress, Progress, PoolHandler, PoolHandlerArg
 
 
 class Dataset(ABC):
@@ -103,32 +104,23 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
         def get_potential_key(function: Function) -> str:
             return function.uid.rsplit(':', maxsplit=1)[1].rsplit('.', maxsplit=1)[1]
 
-        def callback(future: Future, results: List[DecompiledFunction], errors: List[int]) -> None:
-            if not future.cancelled():
-                exception = future.exception()
-                if exception:
-                    errors[0] += 1
-                else:
-                    results.append(future.result())
-
         if not any(bins):
             raise ValueError('Must at least specify one binary')
-        # Decompile binaries
-        new_results: List[DecompiledFunction] = []
-        decompiled_functions: List[DecompiledFunction] = []
-        errors = [0]
-        with Progress('Decompiling binaries...', total=len(bins)) as progress:
-            with ProcessPoolExecutor() as executor:
-                futures = [executor.submit(decompiler.decompile, b)
-                           for b in bins]
-                for future in futures:
-                    future.add_done_callback(lambda f: callback(f, new_results,
-                                                                errors))
-                while not all(f.done() for f in futures):
-                    while any(new_results):
-                        decompiled_functions.append(new_results.pop())
-        # Extract source code functions
-        source_dataset = SourceCodeDataset.from_repository(path)
+        # Extract source code functions and decompile binaries in parallel
+        extract_handler: PoolHandler[str, Sequence[SourceFunction],
+                                     List[SourceFunction]] = PoolHandler(
+            extractor.extract(path, as_handler_arg=True)  # type: ignore
+        )
+        source_functions: Deque[SourceFunction] = deque()
+        decompile_handler: PoolHandler[utils.PathLike, Sequence[DecompiledFunction],
+                                       List[DecompiledFunction]] = PoolHandler(
+            decompiler.decompile(path, as_handler_arg=True)  # type: ignore
+        )
+        decompiled_functions: Deque[DecompiledFunction] = deque()
+        with ProcessPoolProgress.multi_progress((extract_handler, source_functions),
+                                                (decompile_handler, decompiled_functions)):
+            pass
+        source_dataset = SourceCodeDataset(source_functions)
         # Create mappings of potential source code functions to be matched
         potential_mappings: Dict[str, List[SourceFunction]] = {}
         for source_function in source_dataset.values():

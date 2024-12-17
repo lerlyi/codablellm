@@ -1,15 +1,13 @@
 import importlib
-import itertools
 import logging
 
 from abc import ABC, abstractmethod
 from codablellm.core.function import SourceFunction
 from codablellm.core.utils import PathLike
-from concurrent.futures import Future, ProcessPoolExecutor
 from pathlib import Path
-from typing import Any, Callable, Final, Generator, Iterable, List, Literal, Mapping, Optional, OrderedDict, Sequence, Union, overload
+from typing import Any, Final, List, Literal, Mapping, Optional, OrderedDict, Sequence, Union, overload
 
-from codablellm.dashboard import ProcessPoolProgress, Progress
+from codablellm.dashboard import ProcessPoolProgress, Progress, PoolHandlerArg
 
 EXTRACTORS: Final[OrderedDict[str, str]] = OrderedDict({
     'C': 'codablellm.languages.c.CExtractor'
@@ -50,15 +48,26 @@ def get_extractor(language: str, *args: Any, **kwargs: Any) -> Extractor:
     raise ValueError(f'Unsupported language: {language}')
 
 
-def _extract(language: str, path: PathLike) -> Sequence[SourceFunction]:
-    return get_extractor(language).extract(path)
+def _extract(language: str, path: PathLike, *args: Any, **kwargs: Any) -> Sequence[SourceFunction]:
+    return get_extractor(language, *args, **kwargs).extract(path)
 
 
-def extract(path: PathLike,
-            callback: Optional[Callable[[ProcessPoolProgress[Any, Any]], None]] = None) -> List[SourceFunction]:
+@overload
+def extract(path: PathLike, *args: Any,
+            as_handler_arg: bool = False, **kwargs: Any) -> List[SourceFunction]: ...
+
+
+@overload
+def extract(path: PathLike, *args: Any,
+            as_handler_arg: bool = True, **kwargs: Any) -> PoolHandlerArg[str, Sequence[SourceFunction], List[SourceFunction]]: ...
+
+
+def extract(path: PathLike, *args: Any,
+            as_handler_arg: bool = False, **kwargs: Any) -> Union[List[SourceFunction],
+                                                                  PoolHandlerArg[str, Sequence[SourceFunction], List[SourceFunction]]]:
     progress = ProcessPoolProgress(_extract, EXTRACTORS.keys(), Progress('Extracting functions...'),
-                                   submit_args=(path,))
-    if callback:
-        callback(progress)
+                                   submit_args=(path, *args), submit_kwargs=kwargs)
+    if as_handler_arg:
+        yield progress
     with progress:
         return [f for e in progress for f in e]

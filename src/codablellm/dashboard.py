@@ -1,17 +1,20 @@
-from collections.abc import Iterator
-from concurrent.futures import Future, ProcessPoolExecutor
-from contextlib import contextmanager
-from multiprocessing.context import BaseContext
 import time
 import logging
-from types import TracebackType
-from typing import Any, Callable, Concatenate, Generator, Generic, Iterable, List, Mapping, Optional, Tuple, Type, TypeVar, Union
+
+from collections.abc import Iterator
+from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor, wait
+from contextlib import contextmanager
+from multiprocessing.context import BaseContext
 from rich.console import Console
-from rich.table import Table, Column
+from rich.table import Table
 from rich.live import Live
-from rich.progress import Progress as BaseProgress, TaskID
+from rich.progress import Progress as BaseProgress
 from rich.progress import BarColumn, GetTimeCallable, MofNCompleteColumn, ProgressColumn, \
     TextColumn, TimeElapsedColumn, TimeRemainingColumn
+from threading import Lock
+from types import TracebackType
+from typing import Any, Callable, Concatenate, Deque, Generator, Generic, Iterable, List, \
+    Mapping, Optional, Tuple, Type, TypeVar, Union
 
 from codablellm.core import utils
 
@@ -139,11 +142,46 @@ class ProcessPoolProgress(Iterator[R], Generic[I, R]):
 
     @staticmethod
     @contextmanager
-    def multi_progress(*pools: 'ProcessPoolProgress[Any, Any]',
+    def multi_progress(*pools_and_results: Tuple[Union['ProcessPoolProgress[Any, Any]',
+                                                 'PoolHandler[Any, Any, Any]'], Deque[Any]],
                        title: Optional[str] = None) -> Generator[Live, None, None]:
         table = Table(title=title)
-        for pool in pools:
-            pool._multi_progress = True
-            table.add_row(pool._progress)
-        with Live(table) as live:
-            yield live
+        futures: List[Future[None]] = []
+        lock = Lock()
+        with ThreadPoolExecutor() as executor:
+            for pool, results in pools_and_results:
+                if isinstance(pool, PoolHandler):
+                    pool = pool.pool
+                with lock:
+                    pool._multi_progress = True
+                    table.add_row(pool._progress)
+                futures.append(executor.submit(results.extend,
+                                               (_ for _ in pool)))
+            with Live(table) as live:
+                yield live
+            wait(futures)
+
+
+T = TypeVar('T')
+PoolHandlerArg = Generator[ProcessPoolProgress[I, R], None, T]
+
+
+class PoolHandler(Generic[I, R, T]):
+
+    def __init__(self, function: Callable[..., PoolHandlerArg[I, R, T]],
+                 *args: Any, **kwargs: Any) -> None:
+        self._generator = function(*args, **kwargs)
+        self._pool = next(self._generator)
+
+    def __call__(self) -> T:  # type: ignore
+        try:
+            next(self._generator)
+        except StopIteration as e:
+            return e.value
+        else:
+            raise TypeError('Function should only generate one '
+                            'ProcessPoolProgress')
+
+    @property
+    def pool(self) -> ProcessPoolProgress[I, R]:
+        return self._pool
