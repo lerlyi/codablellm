@@ -1,13 +1,13 @@
-from collections.abc import Iterable as BaseIterable, Iterator
+from collections.abc import Iterator
 from concurrent.futures import Future, ProcessPoolExecutor
 from contextlib import contextmanager
 from multiprocessing.context import BaseContext
 import time
 import logging
 from types import TracebackType
-from typing import Any, Callable, Concatenate, Generator, Generic, Iterable, List, Mapping, Optional, ParamSpec, Tuple, Type, TypeVar, Union
+from typing import Any, Callable, Concatenate, Generator, Generic, Iterable, List, Mapping, Optional, Tuple, Type, TypeVar, Union
 from rich.console import Console
-from rich.table import Table
+from rich.table import Table, Column
 from rich.live import Live
 from rich.progress import Progress as BaseProgress, TaskID
 from rich.progress import BarColumn, GetTimeCallable, MofNCompleteColumn, ProgressColumn, \
@@ -42,7 +42,7 @@ class Progress(BaseProgress):
                          speed_estimate_period=speed_estimate_period, transient=transient,
                          redirect_stdout=redirect_stdout, redirect_stderr=redirect_stderr,
                          get_time=get_time, disable=disable, expand=expand)
-        self._task = self.add_task(task, total=total, errors=0)
+        self._task = super().add_task(task, total=total, errors=0)
 
     @property
     def completed(self) -> float:
@@ -97,6 +97,7 @@ class ProcessPoolProgress(Iterator[R], Generic[I, R]):
         self._new_results: List[R] = []
         self._submit_args = submit_args
         self._submit_kwargs = submit_kwargs
+        self._multi_progress = False
 
     def __enter__(self) -> 'ProcessPoolProgress[I, R]':
 
@@ -112,7 +113,8 @@ class ProcessPoolProgress(Iterator[R], Generic[I, R]):
                     self._new_results.append(future.result())
                     self._progress.advance()
 
-        self._progress.__enter__()
+        if not self._multi_progress:
+            self._progress.__enter__()
         self._process_pool_executor.__enter__()
         self._futures = [self._process_pool_executor.submit(self._submit, i, *self._submit_args,
                                                             **self._submit_kwargs)
@@ -123,7 +125,8 @@ class ProcessPoolProgress(Iterator[R], Generic[I, R]):
 
     def __exit__(self, exc_type: Optional[Type[BaseException]], exc_value: Optional[BaseException],
                  traceback: Optional[TracebackType]) -> None:
-        self._progress.__exit__(exc_type, exc_value, traceback)
+        if not self._multi_progress:
+            self._progress.__exit__(exc_type, exc_value, traceback)
         self._process_pool_executor.__exit__(exc_type, exc_value, traceback)
         self._futures.clear()
 
@@ -136,9 +139,11 @@ class ProcessPoolProgress(Iterator[R], Generic[I, R]):
 
     @staticmethod
     @contextmanager
-    def multi_progress(*pools: 'ProcessPoolProgress[Any, Any]') -> Generator[Tuple[Live, int, Any], None, None]:
-        table = Table.grid()
+    def multi_progress(*pools: 'ProcessPoolProgress[Any, Any]',
+                       title: Optional[str] = None) -> Generator[Live, None, None]:
+        table = Table(title=title)
         for pool in pools:
+            pool._multi_progress = True
             table.add_row(pool._progress)
         with Live(table) as live:
-            yield (live, 0, None)
+            yield live

@@ -7,7 +7,7 @@ from codablellm.core.function import SourceFunction
 from codablellm.core.utils import PathLike
 from concurrent.futures import Future, ProcessPoolExecutor
 from pathlib import Path
-from typing import Any, Final, Generator, Iterable, List, Literal, Mapping, Optional, OrderedDict, Sequence, Union
+from typing import Any, Callable, Final, Generator, Iterable, List, Literal, Mapping, Optional, OrderedDict, Sequence, Union, overload
 
 from codablellm.dashboard import ProcessPoolProgress, Progress
 
@@ -54,10 +54,11 @@ def _extract(language: str, path: PathLike) -> Sequence[SourceFunction]:
     return get_extractor(language).extract(path)
 
 
-def extract(path: PathLike, get_progress: bool = False) -> Generator[Union[ProcessPoolProgress, SourceFunction], None, None]:
-
-    with ProcessPoolProgress(_extract, EXTRACTORS.keys(), Progress('Extracting functions...'),
-                             submit_args=(path,)) as progress:
-        if get_progress:
-            yield progress
-        yield from (f for e in progress for f in e)
+def extract(path: PathLike,
+            callback: Optional[Callable[[ProcessPoolProgress[Any, Any]], None]] = None) -> List[SourceFunction]:
+    progress = ProcessPoolProgress(_extract, EXTRACTORS.keys(), Progress('Extracting functions...'),
+                                   submit_args=(path,))
+    if callback:
+        callback(progress)
+    with progress:
+        return [f for e in progress for f in e]
