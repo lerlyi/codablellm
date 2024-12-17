@@ -1,13 +1,14 @@
 import importlib
+import itertools
 import logging
 
 from abc import ABC, abstractmethod
 from codablellm.core.function import SourceFunction
 from codablellm.core.utils import PathLike
 from pathlib import Path
-from typing import Any, Final, List, Literal, Mapping, Optional, OrderedDict, Sequence, Union, overload
+from typing import Any, Final, Generator, Iterable, List, Literal, Mapping, Optional, OrderedDict, Sequence, Tuple, Union, overload
 
-from codablellm.dashboard import ProcessPoolProgress, Progress, PoolHandlerArg
+from codablellm.core.dashboard import ProcessPoolProgress, Progress, PoolHandlerArg
 
 EXTRACTORS: Final[OrderedDict[str, str]] = OrderedDict({
     'C': 'codablellm.languages.c.CExtractor'
@@ -48,28 +49,50 @@ def get_extractor(language: str, *args: Any, **kwargs: Any) -> Extractor:
     raise ValueError(f'Unsupported language: {language}')
 
 
-def _extract(language: str, path: PathLike, *args: Any, **kwargs: Any) -> Sequence[SourceFunction]:
-    return get_extractor(language, *args, **kwargs).extract(path)
+def _extract(extractor_and_file: Tuple[Extractor, Path]) -> Sequence[SourceFunction]:
+    extractor, file = extractor_and_file
+    return extractor.extract(file)
 
 
 @overload
 def extract(path: PathLike, *args: Any,
             as_handler_arg: bool = False, max_workers: Optional[int] = None,
+            accurate_progress: bool = True,
             **kwargs: Any) -> List[SourceFunction]: ...
 
 
 @overload
 def extract(path: PathLike, *args: Any,
             as_handler_arg: bool = True, max_workers: Optional[int] = None,
-            **kwargs: Any) -> PoolHandlerArg[str, Sequence[SourceFunction], List[SourceFunction]]: ...
+            accurate_progress: bool = True,
+            **kwargs: Any) -> PoolHandlerArg[Tuple[Extractor, Path],
+                                             Sequence[SourceFunction], List[SourceFunction]]: ...
 
 
 def extract(path: PathLike, *args: Any,
             as_handler_arg: bool = False, max_workers: Optional[int] = None,
+            accurate_progress: bool = True,
             **kwargs: Any) -> Union[List[SourceFunction],
-                                    PoolHandlerArg[str, Sequence[SourceFunction], List[SourceFunction]]]:
-    progress = ProcessPoolProgress(_extract, EXTRACTORS.keys(), Progress('Extracting functions...'),
-                                   max_workers=max_workers, submit_args=(path, *args), submit_kwargs=kwargs)
+                                    PoolHandlerArg[Tuple[Extractor, Path],
+                                                   Sequence[SourceFunction], List[SourceFunction]]]:
+
+    def generate_extractors_and_files(path: PathLike, *args, **kwargs) -> Generator[Tuple[Extractor, Path], None, None]:
+        for language in EXTRACTORS:
+            extractor = get_extractor(language, *args, **kwargs)
+            for file in extractor.get_extractable_files(path):
+                yield extractor, file
+
+    if accurate_progress:
+        extractors_and_files = list(
+            generate_extractors_and_files(path, *args, **kwargs))
+        total = len(extractors_and_files)
+    else:
+        extractors_and_files = generate_extractors_and_files(
+            path, *args, **kwargs)
+        total = None
+    progress = ProcessPoolProgress(_extract, extractors_and_files, Progress('Extracting functions...',
+                                                                            total=total),
+                                   max_workers=max_workers)
     if as_handler_arg:
         yield progress
     with progress:

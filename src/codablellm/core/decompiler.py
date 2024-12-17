@@ -6,7 +6,7 @@ from codablellm.core.utils import PathLike, is_binary
 from pathlib import Path
 from typing import Any, Final, Iterable, List, Optional, TypedDict, Sequence, Union, overload
 
-from codablellm.dashboard import ProcessPoolProgress, Progress, PoolHandlerArg
+from codablellm.core.dashboard import ProcessPoolProgress, Progress, PoolHandlerArg
 
 
 class NamedDecompiler(TypedDict):

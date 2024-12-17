@@ -68,6 +68,12 @@ BINS: Final[Optional[List[Path]]] = Argument(None, metavar='[PATH]...', show_def
                                              "repository's compiled binaries.")
 
 # Options
+ACCURATE: Final[bool] = Option(True, '--accurate / --lazy',
+                               help='Displays estimated time remaining and detailed '
+                               'progress reporting of source function extraction '
+                               'if --accurate is enabled, at a cost of more '
+                               'memory usage and a longer startup time to collect '
+                               'the sequence of source code files.')
 DECOMPILE: Final[bool] = Option(False, '--decompile / --source', '-d / -s',
                                 help='If the language supports decompiled code mapping, use '
                                 '--decompiler to decompile the binaries specified by the bins '
@@ -93,7 +99,7 @@ MAX_DECOMPILER_WORKERS: Final[Optional[int]] = Option(None, min=1,
                                                       'decompile binaries in parallel.')
 MAX_EXTRACTOR_WORKERS: Final[Optional[int]] = Option(None, min=1,
                                                      help='Maximum number of workers to use to '
-                                                      'extract source code functions in parallel.')
+                                                     'extract source code functions in parallel.')
 VERBOSE: Final[bool] = Option(False, '--verbose', '-v',
                               callback=toggle_logging,
                               help='Display verbose logging information.')
@@ -105,6 +111,7 @@ URL: Final[str] = Option('', help='Download a remote repository and save at the 
 
 @app.command()
 def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path]] = BINS,
+            accurate: bool = ACCURATE,
             debug: bool = DEBUG, decompile: bool = DECOMPILE,
             decompiler: Optional[Tuple[str, str]] = DECOMPILER,
             extractors: Optional[Tuple[ExtractorOperation,
@@ -148,9 +155,11 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
                                param_hint='bins')
         dataset = DecompiledCodeDataset.from_repository(repo, bins,
                                                         **utils.resolve_kwargs(max_decompiler_workers=max_decompiler_workers,
-                                                                               max_extractor_workers=max_extractor_workers))
+                                                                               max_extractor_workers=max_extractor_workers,
+                                                                               accurate_progress=accurate))
     else:
         dataset = SourceCodeDataset.from_repository(repo,
-                                                    **utils.resolve_kwargs(max_workers=max_extractor_workers))
+                                                    **utils.resolve_kwargs(max_workers=max_extractor_workers,
+                                                                           accurate_progress=accurate))
     # Save dataset
     dataset.save_as(save_as)

@@ -10,7 +10,7 @@ from codablellm.core import utils
 from codablellm.core.function import DecompiledFunction, SourceFunction, Function
 from pandas import DataFrame
 
-from codablellm.dashboard import ProcessPoolProgress, Progress, PoolHandler, PoolHandlerArg
+from codablellm.core.dashboard import ProcessPoolProgress, Progress, PoolHandler, PoolHandlerArg
 
 
 class Dataset(ABC):
@@ -63,8 +63,10 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
         return DataFrame.from_dict(self._mapping)
 
     @classmethod
-    def from_repository(cls, path: utils.PathLike, max_workers: Optional[int] = None) -> 'SourceCodeDataset':
-        return cls(extractor.extract(path), **utils.resolve_kwargs(max_workers=max_workers))
+    def from_repository(cls, path: utils.PathLike, max_workers: Optional[int] = None,
+                        accurate_progress: Optional[bool] = None) -> 'SourceCodeDataset':
+        return cls(extractor.extract(path), **utils.resolve_kwargs(max_workers=max_workers,
+                                                                   accurate_progress=accurate_progress))
 
 
 class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, SourceCodeDataset]]):
@@ -101,7 +103,8 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
     @classmethod
     def from_repository(cls, path: utils.PathLike, bins: Sequence[utils.PathLike],
                         max_extractor_workers: Optional[int] = None,
-                        max_decompiler_workers: Optional[int] = None) -> 'DecompiledCodeDataset':
+                        max_decompiler_workers: Optional[int] = None,
+                        accurate_progress: Optional[bool] = None) -> 'DecompiledCodeDataset':
 
         def get_potential_key(function: Function) -> str:
             return function.uid.rsplit(':', maxsplit=1)[1].rsplit('.', maxsplit=1)[1]
@@ -113,7 +116,8 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
                                      List[SourceFunction]] = PoolHandler(
             extractor.extract(path, as_handler_arg=True,
                               # type: ignore
-                              **utils.resolve_kwargs(max_workers=max_extractor_workers))
+                              **utils.resolve_kwargs(max_workers=max_extractor_workers,
+                                                     accurate_progress=accurate_progress))
         )
         source_functions: Deque[SourceFunction] = deque()
         decompile_handler: PoolHandler[utils.PathLike, Sequence[DecompiledFunction],
