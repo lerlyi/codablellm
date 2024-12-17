@@ -44,18 +44,18 @@ def _decompile(path: PathLike, *args: Any, **kwargs: Any) -> Sequence[Decompiled
 
 @overload
 def decompile(paths: Union[PathLike, Sequence[PathLike]],
-              as_handler_arg: bool = True,
+              as_handler_arg: bool = True, max_workers: Optional[int] = None,
               *args: Any, **kwargs: Any) -> PoolHandlerArg[PathLike, Sequence[DecompiledFunction], List[DecompiledFunction]]: ...
 
 
 @overload
 def decompile(paths: Union[PathLike, Sequence[PathLike]],
-              as_handler_arg: bool = False,
+              as_handler_arg: bool = False, max_workers: Optional[int] = None,
               *args: Any, **kwargs: Any) -> List[DecompiledFunction]: ...
 
 
 def decompile(paths: Union[PathLike, Sequence[PathLike]],
-              as_handler_arg: bool = False,
+              as_handler_arg: bool = False, max_workers: Optional[int] = None,
               *args: Any, **kwargs: Any) -> Union[List[DecompiledFunction],
                                                   PoolHandlerArg[PathLike,
                                                                  Sequence[DecompiledFunction],
@@ -68,7 +68,7 @@ def decompile(paths: Union[PathLike, Sequence[PathLike]],
         bins.extend([b for b in path.glob('*') if is_binary(b)]
                     if path.is_dir() else [path])
     progress = ProcessPoolProgress(_decompile, paths, Progress('Decompiling binaries...', total=len(paths)),
-                                   submit_args=args, submit_kwargs=kwargs)
+                                   max_workers=max_workers, submit_args=args, submit_kwargs=kwargs)
     if not as_handler_arg:
         progress = yield progress
     with progress:

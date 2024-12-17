@@ -54,19 +54,22 @@ def _extract(language: str, path: PathLike, *args: Any, **kwargs: Any) -> Sequen
 
 @overload
 def extract(path: PathLike, *args: Any,
-            as_handler_arg: bool = False, **kwargs: Any) -> List[SourceFunction]: ...
+            as_handler_arg: bool = False, max_workers: Optional[int] = None,
+            **kwargs: Any) -> List[SourceFunction]: ...
 
 
 @overload
 def extract(path: PathLike, *args: Any,
-            as_handler_arg: bool = True, **kwargs: Any) -> PoolHandlerArg[str, Sequence[SourceFunction], List[SourceFunction]]: ...
+            as_handler_arg: bool = True, max_workers: Optional[int] = None,
+            **kwargs: Any) -> PoolHandlerArg[str, Sequence[SourceFunction], List[SourceFunction]]: ...
 
 
 def extract(path: PathLike, *args: Any,
-            as_handler_arg: bool = False, **kwargs: Any) -> Union[List[SourceFunction],
-                                                                  PoolHandlerArg[str, Sequence[SourceFunction], List[SourceFunction]]]:
+            as_handler_arg: bool = False, max_workers: Optional[int] = None,
+            **kwargs: Any) -> Union[List[SourceFunction],
+                                    PoolHandlerArg[str, Sequence[SourceFunction], List[SourceFunction]]]:
     progress = ProcessPoolProgress(_extract, EXTRACTORS.keys(), Progress('Extracting functions...'),
-                                   submit_args=(path, *args), submit_kwargs=kwargs)
+                                   max_workers=max_workers, submit_args=(path, *args), submit_kwargs=kwargs)
     if as_handler_arg:
         yield progress
     with progress:

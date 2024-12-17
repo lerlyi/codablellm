@@ -63,8 +63,8 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
         return DataFrame.from_dict(self._mapping)
 
     @classmethod
-    def from_repository(cls, path: utils.PathLike) -> 'SourceCodeDataset':
-        return cls(extractor.extract(path))
+    def from_repository(cls, path: utils.PathLike, max_workers: Optional[int] = None) -> 'SourceCodeDataset':
+        return cls(extractor.extract(path), **utils.resolve_kwargs(max_workers=max_workers))
 
 
 class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, SourceCodeDataset]]):
@@ -99,7 +99,9 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
         return SourceCodeDataset(f for _, d in self.values() for f in d.values())
 
     @classmethod
-    def from_repository(cls, path: utils.PathLike, bins: Sequence[utils.PathLike]) -> 'DecompiledCodeDataset':
+    def from_repository(cls, path: utils.PathLike, bins: Sequence[utils.PathLike],
+                        max_extractor_workers: Optional[int] = None,
+                        max_decompiler_workers: Optional[int] = None) -> 'DecompiledCodeDataset':
 
         def get_potential_key(function: Function) -> str:
             return function.uid.rsplit(':', maxsplit=1)[1].rsplit('.', maxsplit=1)[1]
@@ -109,12 +111,16 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
         # Extract source code functions and decompile binaries in parallel
         extract_handler: PoolHandler[str, Sequence[SourceFunction],
                                      List[SourceFunction]] = PoolHandler(
-            extractor.extract(path, as_handler_arg=True)  # type: ignore
+            extractor.extract(path, as_handler_arg=True,
+                              # type: ignore
+                              **utils.resolve_kwargs(max_workers=max_extractor_workers))
         )
         source_functions: Deque[SourceFunction] = deque()
         decompile_handler: PoolHandler[utils.PathLike, Sequence[DecompiledFunction],
                                        List[DecompiledFunction]] = PoolHandler(
-            decompiler.decompile(path, as_handler_arg=True)  # type: ignore
+            decompiler.decompile(path, as_handler_arg=True,
+                                 # type: ignore
+                                 **utils.resolve_kwargs(max_workers=max_decompiler_workers))
         )
         decompiled_functions: Deque[DecompiledFunction] = deque()
         with ProcessPoolProgress.multi_progress((extract_handler, source_functions),

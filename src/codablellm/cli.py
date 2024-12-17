@@ -3,7 +3,7 @@ import logging
 
 from click import BadParameter
 from codablellm import __version__
-from codablellm.core import decompiler as codablellm_decompiler
+from codablellm.core import decompiler as codablellm_decompiler, utils
 from codablellm.core import downloader
 from codablellm.core import extractor as codablellm_extractor
 from codablellm.dataset import DecompiledCodeDataset, SourceCodeDataset
@@ -70,7 +70,7 @@ BINS: Final[Optional[List[Path]]] = Argument(None, metavar='[PATH]...', show_def
 # Options
 DECOMPILE: Final[bool] = Option(False, '--decompile / --source', '-d / -s',
                                 help='If the language supports decompiled code mapping, use '
-                                '--decompiler to decompile the binaries specified by the BINS '
+                                '--decompiler to decompile the binaries specified by the bins '
                                 'argument and add decompiled code to the dataset.')
 DECOMPILER: Final[Optional[Tuple[str, str]]] = Option((codablellm_decompiler.DECOMPILER['name'],
                                                        codablellm_decompiler.DECOMPILER['class_path']
@@ -88,6 +88,12 @@ GHIDRA: Final[Optional[Path]] = Option(Ghidra.get_path(), envvar=Ghidra.ENVIRON_
                                        help="Path to Ghidra's analyzeHeadless command.")
 GIT: Final[bool] = Option(False, '--git / --archive', help='Determines whether --url is a Git '
                           'download URL or a tarball/zipfile download URL.')
+MAX_DECOMPILER_WORKERS: Final[Optional[int]] = Option(None, min=1,
+                                                      help='Maximum number of workers to use to '
+                                                      'decompile binaries in parallel.')
+MAX_EXTRACTOR_WORKERS: Final[Optional[int]] = Option(None, min=1,
+                                                     help='Maximum number of workers to use to '
+                                                      'extract source code functions in parallel.')
 VERBOSE: Final[bool] = Option(False, '--verbose', '-v',
                               callback=toggle_logging,
                               help='Display verbose logging information.')
@@ -103,8 +109,10 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
             decompiler: Optional[Tuple[str, str]] = DECOMPILER,
             extractors: Optional[Tuple[ExtractorOperation,
                                        Path]] = EXTRACTORS_ARG,
-            git: bool = GIT, ghidra: Optional[Path] = GHIDRA, url: str = URL,
-            verbose: bool = VERBOSE, version: bool = VERSION):
+            git: bool = GIT, ghidra: Optional[Path] = GHIDRA,
+            max_decompiler_workers: Optional[int] = MAX_DECOMPILER_WORKERS,
+            max_extractor_workers: Optional[int] = MAX_EXTRACTOR_WORKERS,
+            url: str = URL, verbose: bool = VERBOSE, version: bool = VERSION) -> None:
     if url:
         # Download remote repository
         if git:
@@ -138,8 +146,11 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
         if not bins or not any(bins):
             raise BadParameter('Must specify at least one binary for decompiled code datasets.',
                                param_hint='bins')
-        dataset = DecompiledCodeDataset.from_repository(repo, bins)
+        dataset = DecompiledCodeDataset.from_repository(repo, bins,
+                                                        **utils.resolve_kwargs(max_decompiler_workers=max_decompiler_workers,
+                                                                               max_extractor_workers=max_extractor_workers))
     else:
-        dataset = SourceCodeDataset.from_repository(repo)
+        dataset = SourceCodeDataset.from_repository(repo,
+                                                    **utils.resolve_kwargs(max_workers=max_extractor_workers))
     # Save dataset
     dataset.save_as(save_as)
