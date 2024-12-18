@@ -1,3 +1,4 @@
+import importlib
 import json
 import logging
 
@@ -6,12 +7,13 @@ from codablellm import __version__
 from codablellm.core import decompiler as codablellm_decompiler, utils
 from codablellm.core import downloader
 from codablellm.core import extractor as codablellm_extractor
+from codablellm.core.function import SourceFunction
 from codablellm.dataset import DecompiledCodeDataset, SourceCodeDataset
 from enum import Enum
 from pathlib import Path
 from rich import print
 from typer import Argument, Exit, Option, Typer
-from typing import Dict, Final, List, Optional, Tuple
+from typing import Callable, Dict, Final, List, Optional, Tuple
 
 from codablellm.decompilers.ghidra import Ghidra
 
@@ -19,8 +21,10 @@ logger = logging.getLogger('codablellm')
 
 app = Typer()
 
+# Argument/option choices
 
-class ExtractorOperation(str, Enum):
+
+class ExtractorConfigOperation(str, Enum):
     PREPEND = 'prepend'
     APPEND = 'append'
     SET = 'set'
@@ -35,6 +39,17 @@ def validate_dataset_format(path: Path) -> Path:
                                                              '.html', '.xml']]:
         raise BadParameter(f'Unsupported dataset format: "{path.suffix}"')
     return path
+
+# Argument/option parsers
+
+
+def parse_transform(callable_path: str) -> Callable[[SourceFunction], SourceFunction]:
+    module_path, callable_name = callable_path.rsplit('.', 1)
+    try:
+        module = importlib.import_module(module_path)
+        return getattr(module, callable_name)
+    except (ModuleNotFoundError, AttributeError) as e:
+        raise BadParameter(f'Cannot find "{callable_path}"') from e
 
 # Miscellaneous argument/option callbacks
 
@@ -82,13 +97,13 @@ DECOMPILER: Final[Optional[Tuple[str, str]]] = Option((codablellm_decompiler.DEC
                                                        codablellm_decompiler.DECOMPILER['class_path']
                                                        ),
                                                       help='Decompiler to use.',
-                                                      metavar='<TEXT TEXT>')
+                                                      metavar='<TEXT CLASSPATH>')
 DEBUG: Final[bool] = Option(False, '--debug', callback=toggle_debug_logging,
                             hidden=True)
-EXTRACTORS_ARG: Final[Optional[Tuple[ExtractorOperation, Path]]] = Option(None, dir_okay=False, exists=True,
-                                                                          metavar='<[prepend|append|set] FILE>',
-                                                                          help='Order of extractors '
-                                                                          'to use, including custom ones.')
+EXTRACTORS_ARG: Final[Optional[Tuple[ExtractorConfigOperation, Path]]] = Option(None, dir_okay=False, exists=True,
+                                                                                metavar='<[prepend|append|set] FILE>',
+                                                                                help='Order of extractors '
+                                                                                'to use, including custom ones.')
 GHIDRA: Final[Optional[Path]] = Option(Ghidra.get_path(), envvar=Ghidra.ENVIRON_KEY, dir_okay=False,
                                        callback=Ghidra.set_path,
                                        help="Path to Ghidra's analyzeHeadless command.")
@@ -105,6 +120,21 @@ VERBOSE: Final[bool] = Option(False, '--verbose', '-v',
                               help='Display verbose logging information.')
 VERSION: Final[bool] = Option(False, '--version', is_eager=True, callback=show_version,
                               help='Shows the installed version of codablellm and exit.')
+TRANSFORM: Final[Optional[Callable[[SourceFunction],
+                                   SourceFunction]]] = Option(None, '--transform', '-t',
+                                                              metavar='CALLABLEPATH',
+                                                              help='Transformation function to use '
+                                                              'when extracting source code '
+                                                              'functions.',
+                                                              parser=parse_transform)
+REPLACE_SOURCE: Final[bool] = Option(False, '--replace-source / --append-source',
+                                     help='If --transform is specified, determines how to '
+                                     'to merge transformed functions. In --replace-source the '
+                                     'dataset will not keep the original values and will '
+                                     'instead replace them with the transformed '
+                                     'values. --append-source will keep the original values '
+                                     'and transformed values, at the cost of more memory '
+                                     'and time to process both entries.')
 URL: Final[str] = Option('', help='Download a remote repository and save at the local path '
                          'specified by the REPO argument.')
 
@@ -114,11 +144,14 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
             accurate: bool = ACCURATE,
             debug: bool = DEBUG, decompile: bool = DECOMPILE,
             decompiler: Optional[Tuple[str, str]] = DECOMPILER,
-            extractors: Optional[Tuple[ExtractorOperation,
+            extractors: Optional[Tuple[ExtractorConfigOperation,
                                        Path]] = EXTRACTORS_ARG,
             git: bool = GIT, ghidra: Optional[Path] = GHIDRA,
             max_decompiler_workers: Optional[int] = MAX_DECOMPILER_WORKERS,
             max_extractor_workers: Optional[int] = MAX_EXTRACTOR_WORKERS,
+            replace_source: bool = REPLACE_SOURCE,
+            transform: Optional[Callable[[SourceFunction],
+                                         SourceFunction]] = TRANSFORM,
             url: str = URL, verbose: bool = VERBOSE, version: bool = VERSION) -> None:
     if url:
         # Download remote repository
@@ -141,11 +174,11 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
         except json.JSONDecodeError as e:
             raise BadParameter('Could not decode extractor configuration file.',
                                param_hint='--extractors') from e
-        if operation == ExtractorOperation.SET:
+        if operation == ExtractorConfigOperation.SET:
             codablellm_extractor.set_extractors(configured_extractors)
         else:
             for language, class_path in configured_extractors.items():
-                order = 'last' if operation == ExtractorOperation.APPEND else 'first'
+                order = 'last' if operation == ExtractorConfigOperation.APPEND else 'first'
                 codablellm_extractor.add_extractor(language, class_path,
                                                    order=order)
     # Create source code/decompiled code dataset
@@ -156,10 +189,13 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
         dataset = DecompiledCodeDataset.from_repository(repo, bins,
                                                         **utils.resolve_kwargs(max_decompiler_workers=max_decompiler_workers,
                                                                                max_extractor_workers=max_extractor_workers,
-                                                                               accurate_progress=accurate))
+                                                                               accurate_progress=accurate,
+                                                                               transform=transform))
     else:
         dataset = SourceCodeDataset.from_repository(repo,
-                                                    **utils.resolve_kwargs(max_workers=max_extractor_workers,
-                                                                           accurate_progress=accurate))
+                                                    transform_mode='replace' if replace_source else 'append',
+                                                    accurate_progress=accurate,
+                                                    max_workers=max_extractor_workers,
+                                                    transform=transform)
     # Save dataset
     dataset.save_as(save_as)

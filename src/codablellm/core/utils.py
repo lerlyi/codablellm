@@ -1,6 +1,6 @@
 from ast import TypeVar
 from pathlib import Path
-from typing import Any, Dict, Generic, List, Optional, Protocol, Type, Union
+from typing import Any, Dict, List, Optional, Protocol, Type, Union
 
 
 PathLike = Union[Path, str]

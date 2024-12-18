@@ -1,12 +1,11 @@
 import importlib
-import itertools
 import logging
 
 from abc import ABC, abstractmethod
 from codablellm.core.function import SourceFunction
 from codablellm.core.utils import PathLike
 from pathlib import Path
-from typing import Any, Final, Generator, Iterable, List, Literal, Mapping, Optional, OrderedDict, Sequence, Tuple, Union, overload
+from typing import Any, Callable, Final, Generator, List, Literal, Mapping, Optional, OrderedDict, Sequence, Tuple, Union, overload
 
 from codablellm.core.dashboard import ProcessPoolProgress, Progress, PoolHandlerArg
 
@@ -58,6 +57,8 @@ def _extract(extractor_and_file: Tuple[Extractor, Path]) -> Sequence[SourceFunct
 def extract(path: PathLike, *args: Any,
             as_handler_arg: bool = False, max_workers: Optional[int] = None,
             accurate_progress: bool = True,
+            transform: Optional[Callable[[SourceFunction],
+                                         SourceFunction]] = None,
             **kwargs: Any) -> List[SourceFunction]: ...
 
 
@@ -65,6 +66,8 @@ def extract(path: PathLike, *args: Any,
 def extract(path: PathLike, *args: Any,
             as_handler_arg: bool = True, max_workers: Optional[int] = None,
             accurate_progress: bool = True,
+            transform: Optional[Callable[[SourceFunction],
+                                         SourceFunction]] = None,
             **kwargs: Any) -> PoolHandlerArg[Tuple[Extractor, Path],
                                              Sequence[SourceFunction], List[SourceFunction]]: ...
 
@@ -72,9 +75,12 @@ def extract(path: PathLike, *args: Any,
 def extract(path: PathLike, *args: Any,
             as_handler_arg: bool = False, max_workers: Optional[int] = None,
             accurate_progress: bool = True,
+            transform: Optional[Callable[[SourceFunction],
+                                         SourceFunction]] = None,
             **kwargs: Any) -> Union[List[SourceFunction],
                                     PoolHandlerArg[Tuple[Extractor, Path],
-                                                   Sequence[SourceFunction], List[SourceFunction]]]:
+                                                   Sequence[SourceFunction],
+                                                   List[SourceFunction]]]:
 
     def generate_extractors_and_files(path: PathLike, *args, **kwargs) -> Generator[Tuple[Extractor, Path], None, None]:
         for language in EXTRACTORS:
@@ -96,4 +102,5 @@ def extract(path: PathLike, *args: Any,
     if as_handler_arg:
         yield progress
     with progress:
-        return [f for e in progress for f in e]
+        return [transform(f) for e in progress for f in e] if transform \
+            else [f for e in progress for f in e]
