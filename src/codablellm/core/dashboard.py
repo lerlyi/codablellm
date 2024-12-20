@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 import time
 import logging
 
@@ -75,8 +76,28 @@ class Progress(BaseProgress):
 
 I = TypeVar('I')
 R = TypeVar('R')
+T = TypeVar('T')
 
 SubmitCallable = Callable[Concatenate[I, ...], R]
+
+
+class CallablePoolProgress(ABC, Generic[I, R, T]):
+
+    def __init__(self, pool: 'ProcessPoolProgress[I, R]') -> None:
+        super().__init__()
+        self._pool = pool
+
+    @property
+    def pool(self) -> 'ProcessPoolProgress[I, R]':
+        return self._pool
+
+    @abstractmethod
+    def get_results(self) -> T:
+        pass
+
+    def __call__(self) -> T:
+        with self.pool:
+            return self.get_results()
 
 
 class ProcessPoolProgress(Iterator[R], Generic[I, R]):
@@ -142,46 +163,26 @@ class ProcessPoolProgress(Iterator[R], Generic[I, R]):
 
     @staticmethod
     @contextmanager
-    def multi_progress(*pools_and_results: Tuple[Union['ProcessPoolProgress[Any, Any]',
-                                                 'PoolHandler[Any, Any, Any]'], Deque[Any]],
+    def multi_progress(*pools_and_results: Tuple['CallablePoolProgress[Any, Any, Any]', Deque[Any]],
                        title: Optional[str] = None) -> Generator[Live, None, None]:
+
+        def get_results(pool: 'CallablePoolProgress[Any, Any, Any]',
+                        results: Deque[Any]) -> None:
+            result = pool()
+            try:
+                results.extend(result)
+            except TypeError:
+                results.append(result)
+
         table = Table(title=title)
         futures: List[Future[None]] = []
         lock = Lock()
         with ThreadPoolExecutor() as executor:
             for pool, results in pools_and_results:
-                if isinstance(pool, PoolHandler):
-                    pool = pool.pool
                 with lock:
-                    pool._multi_progress = True
-                    table.add_row(pool._progress)
-                futures.append(executor.submit(results.extend,
-                                               (_ for _ in pool)))
+                    pool.pool._multi_progress = True
+                    table.add_row(pool.pool._progress)
+                futures.append(executor.submit(get_results, pool, results))
             with Live(table) as live:
                 yield live
             wait(futures)
-
-
-T = TypeVar('T')
-PoolHandlerArg = Generator[ProcessPoolProgress[I, R], None, T]
-
-
-class PoolHandler(Generic[I, R, T]):
-
-    def __init__(self, function: Callable[..., PoolHandlerArg[I, R, T]],
-                 *args: Any, **kwargs: Any) -> None:
-        self._generator = function(*args, **kwargs)
-        self._pool = next(self._generator)
-
-    def __call__(self) -> T:  # type: ignore
-        try:
-            next(self._generator)
-        except StopIteration as e:
-            return e.value
-        else:
-            raise TypeError('Function should only generate one '
-                            'ProcessPoolProgress')
-
-    @property
-    def pool(self) -> ProcessPoolProgress[I, R]:
-        return self._pool

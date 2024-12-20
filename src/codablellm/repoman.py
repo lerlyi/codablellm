@@ -1,10 +1,11 @@
-import logging
-
 from contextlib import contextmanager, nullcontext
+import logging
 import subprocess
+from typing import Any, Generator, Optional, Sequence, Union
+
 from codablellm.core import utils
 from codablellm.core.dashboard import Progress
-from typing import Any, Generator, Optional, Sequence, Union
+
 
 Command = Union[str, Sequence[Any]]
 

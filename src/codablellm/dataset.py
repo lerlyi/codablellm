@@ -4,14 +4,15 @@ from collections.abc import Mapping
 from pathlib import Path
 import shutil
 from tempfile import TemporaryDirectory
-from typing import Callable, Deque, Dict, Iterable, Iterator, List, Literal, Optional, Sequence, Tuple, Union
-from codablellm.core import decompiler
-from codablellm.core import extractor
-from codablellm.core import utils
-from codablellm.core.function import DecompiledFunction, SourceFunction, Function
+from typing import (
+    Callable, Deque, Dict, Iterable, Iterator, List, Literal,
+    Optional, Sequence, Tuple, Union)
+
 from pandas import DataFrame
 
-from codablellm.core.dashboard import ProcessPoolProgress, PoolHandler
+from codablellm.core import decompiler, extractor, utils
+from codablellm.core.dashboard import ProcessPoolProgress
+from codablellm.core.function import DecompiledFunction, SourceFunction, Function
 
 
 class Dataset(ABC):
@@ -69,27 +70,26 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
                         transform: Optional[Callable[[SourceFunction],
                                                      SourceFunction]] = None,
                         transform_mode: Literal['replace', 'append'] = 'append') -> 'SourceCodeDataset':
-
-        def get_extract_handler(path: utils.PathLike) -> PoolHandler[str, Sequence[SourceFunction],
-                                                                     List[SourceFunction]]:
-            nonlocal max_workers, accurate_progress, transform
-            return PoolHandler(
-                extractor.extract(path, as_handler_arg=True,
-                                  # type: ignore
-                                  **utils.resolve_kwargs(max_workers=max_workers,
-                                                         accurate_progress=accurate_progress,
-                                                         transform=transform))
-            )
         if not transform or transform_mode == 'replace':
             return cls(extractor.extract(path,
                                          **utils.resolve_kwargs(max_workers=max_workers,
                                                                 accurate_progress=accurate_progress,
                                                                 transform=transform)))
-        extract_original_handler = get_extract_handler(path)
+        original_extraction_pool = extractor.extract(path, as_callable_pool=True,
+                                                     **utils.resolve_kwargs(max_workers=max_workers,
+                                                                            accurate_progress=accurate_progress))
+        original_extraction_results: Deque[SourceFunction] = deque()
         with TemporaryDirectory() as copied_repo_dir:
             shutil.copytree(path, copied_repo_dir)
-            extract_copy_handler = get_extract_handler(copied_repo_dir)
-        return cls()
+            modified_extraction_pool = extractor.extract(path, as_callable_pool=True,
+                                                         **utils.resolve_kwargs(max_workers=max_workers,
+                                                                                accurate_progress=accurate_progress))
+            modified_extraction_results: Deque[SourceFunction] = deque()
+            with ProcessPoolProgress.multi_progress((original_extraction_pool,  # type: ignore
+                                                     original_extraction_results),
+                                                    (modified_extraction_pool,  # type: ignore
+                                                     modified_extraction_results)):
+                return cls(s for d in [original_extraction_results, modified_extraction_results] for s in d)
 
 
 class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, SourceCodeDataset]]):
@@ -135,23 +135,17 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
         if not any(bins):
             raise ValueError('Must at least specify one binary')
         # Extract source code functions and decompile binaries in parallel
-        extract_handler: PoolHandler[str, Sequence[SourceFunction],
-                                     List[SourceFunction]] = PoolHandler(
-            extractor.extract(path, as_handler_arg=True,
-                              # type: ignore
-                              **utils.resolve_kwargs(max_workers=max_extractor_workers,
-                                                     accurate_progress=accurate_progress))
-        )
+        original_extraction_pool = extractor.extract(path, as_callable_pool=True,
+                                                     **utils.resolve_kwargs(max_workers=max_extractor_workers,
+                                                                            accurate_progress=accurate_progress))
         source_functions: Deque[SourceFunction] = deque()
-        decompile_handler: PoolHandler[utils.PathLike, Sequence[DecompiledFunction],
-                                       List[DecompiledFunction]] = PoolHandler(
-            decompiler.decompile(path, as_handler_arg=True,
-                                 # type: ignore
-                                 **utils.resolve_kwargs(max_workers=max_decompiler_workers))
-        )
+        decompile_pool = decompiler.decompile(path, as_callable_pool=True,
+                                              **utils.resolve_kwargs(max_workers=max_decompiler_workers))
         decompiled_functions: Deque[DecompiledFunction] = deque()
-        with ProcessPoolProgress.multi_progress((extract_handler, source_functions),
-                                                (decompile_handler, decompiled_functions)):
+        with ProcessPoolProgress.multi_progress((original_extraction_pool,  # type: ignore
+                                                 source_functions),
+                                                (decompile_pool,  # type: ignore
+                                                 decompiled_functions)):
             pass
         source_dataset = SourceCodeDataset(source_functions)
         # Create mappings of potential source code functions to be matched

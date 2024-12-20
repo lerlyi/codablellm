@@ -6,7 +6,7 @@ from codablellm.core.utils import PathLike, is_binary
 from pathlib import Path
 from typing import Any, Final, Iterable, List, Optional, TypedDict, Sequence, Union, overload
 
-from codablellm.core.dashboard import ProcessPoolProgress, Progress, PoolHandlerArg
+from codablellm.core.dashboard import CallablePoolProgress, ProcessPoolProgress, Progress
 
 
 class NamedDecompiler(TypedDict):
@@ -42,34 +42,31 @@ def _decompile(path: PathLike, *args: Any, **kwargs: Any) -> Sequence[Decompiled
     return get_decompiler(*args, **kwargs).decompile(path)
 
 
-@overload
-def decompile(paths: Union[PathLike, Sequence[PathLike]],
-              as_handler_arg: bool = True, max_workers: Optional[int] = None,
-              *args: Any, **kwargs: Any) -> PoolHandlerArg[PathLike, Sequence[DecompiledFunction], List[DecompiledFunction]]: ...
+class _CallableDecompiler(CallablePoolProgress[PathLike, Sequence[DecompiledFunction],
+                                               List[DecompiledFunction]]):
 
-
-@overload
-def decompile(paths: Union[PathLike, Sequence[PathLike]],
-              as_handler_arg: bool = False, max_workers: Optional[int] = None,
-              *args: Any, **kwargs: Any) -> List[DecompiledFunction]: ...
-
-
-def decompile(paths: Union[PathLike, Sequence[PathLike]],
-              as_handler_arg: bool = False, max_workers: Optional[int] = None,
-              *args: Any, **kwargs: Any) -> Union[List[DecompiledFunction],
-                                                  PoolHandlerArg[PathLike,
-                                                                 Sequence[DecompiledFunction],
-                                                                 List[DecompiledFunction]]]:
-    bins: List[Path] = []
-    if isinstance(paths, (Path, str)):
-        paths = [paths]
-    for path in paths:
-        path = Path(path)
-        bins.extend([b for b in path.glob('*') if is_binary(b)]
-                    if path.is_dir() else [path])
-    progress = ProcessPoolProgress(_decompile, paths, Progress('Decompiling binaries...', total=len(paths)),
+    def __init__(self, paths: Union[PathLike, Sequence[PathLike]],
+                 max_workers: Optional[int],
+                 *args: Any, **kwargs: Any) -> None:
+        bins: List[Path] = []
+        if isinstance(paths, (Path, str)):
+            paths = [paths]
+        for path in paths:
+            path = Path(path)
+            bins.extend([b for b in path.glob('*') if is_binary(b)]
+                        if path.is_dir() else [path])
+        pool = ProcessPoolProgress(_decompile, paths, Progress('Decompiling binaries...', total=len(paths)),
                                    max_workers=max_workers, submit_args=args, submit_kwargs=kwargs)
-    if not as_handler_arg:
-        progress = yield progress
-    with progress:
-        return [d for b in progress for d in b]
+        super().__init__(pool)
+
+    def get_results(self) -> List[DecompiledFunction]:
+        return [d for b in self.pool for d in b]
+
+
+def decompile(paths: Union[PathLike, Sequence[PathLike]],
+              as_callable_pool: bool = False, max_workers: Optional[int] = None,
+              *args: Any, **kwargs: Any) -> Union[List[DecompiledFunction], _CallableDecompiler]:
+    decompiler = _CallableDecompiler(paths, max_workers, *args, **kwargs)
+    if as_callable_pool:
+        return decompiler
+    return decompiler.get_results()
