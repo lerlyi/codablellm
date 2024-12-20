@@ -124,14 +124,24 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
         return SourceCodeDataset(f for _, d in self.values() for f in d.values())
 
     @classmethod
-    def from_repository(cls, path: utils.PathLike, bins: Sequence[utils.PathLike],
-                        max_extractor_workers: Optional[int] = None,
-                        max_decompiler_workers: Optional[int] = None,
-                        accurate_progress: Optional[bool] = None) -> 'DecompiledCodeDataset':
+    def _from_dataset_and_decompiled(cls, source_dataset: SourceCodeDataset,
+                                     decompiled_functions: Iterable[DecompiledFunction]) -> 'DecompiledCodeDataset':
 
         def get_potential_key(function: Function) -> str:
             return function.uid.rsplit(':', maxsplit=1)[1].rsplit('.', maxsplit=1)[1]
 
+        potential_mappings: Dict[str, List[SourceFunction]] = {}
+        for source_function in source_dataset.values():
+            potential_mappings.setdefault(get_potential_key(source_function),
+                                          []).append(source_dataset[source_function.uid])
+        return cls([(d, SourceCodeDataset(potential_mappings[get_potential_key(d)]))
+                    for d in decompiled_functions if get_potential_key(d) in potential_mappings])
+
+    @classmethod
+    def from_repository(cls, path: utils.PathLike, bins: Sequence[utils.PathLike],
+                        max_extractor_workers: Optional[int] = None,
+                        max_decompiler_workers: Optional[int] = None,
+                        accurate_progress: Optional[bool] = None) -> 'DecompiledCodeDataset':
         if not any(bins):
             raise ValueError('Must at least specify one binary')
         # Extract source code functions and decompile binaries in parallel
@@ -148,10 +158,10 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
                                                  decompiled_functions)):
             pass
         source_dataset = SourceCodeDataset(source_functions)
-        # Create mappings of potential source code functions to be matched
-        potential_mappings: Dict[str, List[SourceFunction]] = {}
-        for source_function in source_dataset.values():
-            potential_mappings.setdefault(get_potential_key(source_function),
-                                          []).append(source_dataset[source_function.uid])
-        return cls([(d, SourceCodeDataset(potential_mappings[get_potential_key(d)]))
-                    for d in decompiled_functions if get_potential_key(d) in potential_mappings])
+        return cls._from_dataset_and_decompiled(source_dataset, decompiled_functions)
+
+    @classmethod
+    def from_source_code_dataset(cls, dataset: SourceCodeDataset, bins: Sequence[utils.PathLike],
+                                 max_workers: Optional[int] = None) -> 'DecompiledCodeDataset':
+        return cls._from_dataset_and_decompiled(dataset, decompiler.decompile(bins,
+                                                                              **utils.resolve_kwargs(max_workers=max_workers)))

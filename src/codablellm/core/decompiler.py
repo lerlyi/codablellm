@@ -63,6 +63,18 @@ class _CallableDecompiler(CallablePoolProgress[PathLike, Sequence[DecompiledFunc
         return [d for b in self.pool for d in b]
 
 
+@overload
+def decompile(paths: Union[PathLike, Sequence[PathLike]],
+              as_callable_pool: bool = False, max_workers: Optional[int] = None,
+              *args: Any, **kwargs: Any) -> List[DecompiledFunction]: ...
+
+
+@overload
+def decompile(paths: Union[PathLike, Sequence[PathLike]],
+              as_callable_pool: bool = True, max_workers: Optional[int] = None,
+              *args: Any, **kwargs: Any) -> _CallableDecompiler: ...
+
+
 def decompile(paths: Union[PathLike, Sequence[PathLike]],
               as_callable_pool: bool = False, max_workers: Optional[int] = None,
               *args: Any, **kwargs: Any) -> Union[List[DecompiledFunction], _CallableDecompiler]:

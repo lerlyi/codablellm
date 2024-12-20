@@ -1,15 +1,21 @@
 from contextlib import contextmanager, nullcontext
 import logging
 import subprocess
-from typing import Any, Generator, Optional, Sequence, Union
+from typing import Any, Callable, Generator, Literal, Optional, Sequence, Union
 
 from codablellm.core import utils
 from codablellm.core.dashboard import Progress
+from codablellm.core.function import SourceFunction
+from codablellm.dataset import DecompiledCodeDataset, SourceCodeDataset
 
 
 Command = Union[str, Sequence[Any]]
 
 logger = logging.getLogger('codablellm')
+
+
+def add_command_args(command: Command, *args: Any) -> Command:
+    return [*command, *args] if not isinstance(Command, str) else [command, *args]
 
 
 def execute_command(command: Command, ignore_errors: bool = False,
@@ -58,3 +64,39 @@ def manage(build_command: Command, cleanup_command: Optional[Command] = None,
     if cleanup_command:
         cleanup(cleanup_command, ignore_errors=ignore_cleanup_errors,
                 show_progress=show_progress)
+
+
+create_source_dataset = SourceCodeDataset.from_repository
+create_decompiled_dataset = DecompiledCodeDataset.from_repository
+
+
+def compile_dataset(path: utils.PathLike, bins: Sequence[utils.PathLike], build_command: Command,
+                    max_extractor_workers: Optional[int] = None,
+                    max_decompiler_workers: Optional[int] = None,
+                    transform: Optional[Callable[[SourceFunction],
+                                                 SourceFunction]] = None,
+                    transform_mode: Optional[Literal['replace',
+                                                     'append']] = None,
+                    cleanup_command: Optional[Command] = None,
+                    ignore_build_errors: Optional[bool] = None,
+                    ignore_cleanup_errors: Optional[bool] = None,
+                    progress: Optional[Literal['accurate',
+                                               'lazy']] = None,
+                    repo_arg_with: Optional[Literal['build',
+                                                    'cleanup', 'both']] = None,
+                    ensure_compiles: bool = True) -> DecompiledCodeDataset:
+    if repo_arg_with == 'build' or repo_arg_with == 'both':
+        build_command = add_command_args(build_command, path)
+    if cleanup_command and (repo_arg_with == 'cleanup' or repo_arg_with == 'both'):
+        cleanup_command = add_command_args(cleanup_command, path)
+    with manage(build_command, **utils.resolve_kwargs(cleanup_command=cleanup_command,
+                                                      ignore_build_errors=ignore_build_errors,
+                                                      ignore_cleanup_errors=ignore_cleanup_errors,
+                                                      show_progress=progress)):
+        if progress:
+            accurate_progress = True if progress == 'accurate' else False
+        else:
+            accurate_progress = None
+        return create_decompiled_dataset(path, bins, **utils.resolve_kwargs(max_extractor_workers=max_extractor_workers,
+                                                                            max_decompiler_workers=max_decompiler_workers,
+                                                                            accurate_progress=accurate_progress))

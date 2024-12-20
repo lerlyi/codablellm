@@ -34,7 +34,7 @@ class Progress(BaseProgress):
                                                                   TextColumn(
                                                                       '[b green]Estimated Time Remaining:'),
                                                                   TimeRemainingColumn(),
-                                                                  TextColumn('[b yellow]Errors: {task.errors}')],
+                                                                  TextColumn('[b yellow]Errors: {task.fields[errors]}')],
                  total: Optional[float] = None, console: Optional[Console] = None,
                  auto_refresh: bool = True, refresh_per_second: float = 10,
                  speed_estimate_period: float = 30,
@@ -125,7 +125,7 @@ class ProcessPoolProgress(Iterator[R], Generic[I, R]):
 
     def __enter__(self) -> 'ProcessPoolProgress[I, R]':
 
-        def callback(future: Future) -> None:
+        def callback(future: Future[R]) -> None:
             nonlocal self
             if not future.cancelled():
                 exception = future.exception()
@@ -160,6 +160,10 @@ class ProcessPoolProgress(Iterator[R], Generic[I, R]):
                 time.sleep(0.1)
             return self._new_results.pop()
         raise StopIteration()
+
+    @property
+    def errors(self) -> int:
+        return self._progress.errors
 
     @staticmethod
     @contextmanager

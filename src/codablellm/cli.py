@@ -150,6 +150,14 @@ REPLACE_SOURCE: Final[bool] = Option(False, '--replace-source / --append-source'
                                      'values. --append-source will keep the original values '
                                      'and transformed values, at the cost of more memory '
                                      'and time to process both entries.')
+REPO_BUILD_ARG: Final[bool] = Option(False, '--repo-build-arg', '-B',
+                                     help="Will pass in the path of the repository's path as the first "
+                                     'argument for the command specified with --build. This may '
+                                     'be useful when --append-source is specified.')
+REPO_CLEANUP_ARG: Final[bool] = Option(False, '--repo-cleanup-arg', '-C',
+                                       help="Will pass in the path of the repository's path as the first "
+                                       'argument for the command specified with --cleanup. This may '
+                                       'be useful when --append-source is specified.')
 URL: Final[str] = Option('', help='Download a remote repository and save at the local path '
                          'specified by the REPO argument.')
 
@@ -168,6 +176,8 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
             max_decompiler_workers: Optional[int] = MAX_DECOMPILER_WORKERS,
             max_extractor_workers: Optional[int] = MAX_EXTRACTOR_WORKERS,
             replace_source: bool = REPLACE_SOURCE,
+            repo_build_arg: bool = REPO_BUILD_ARG,
+            repo_cleanup_arg: bool = REPO_CLEANUP_ARG,
             transform: Optional[Callable[[SourceFunction],
                                          SourceFunction]] = TRANSFORM,
             url: str = URL, verbose: bool = VERBOSE, version: bool = VERSION) -> None:
