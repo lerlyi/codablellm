@@ -4,18 +4,19 @@ import json
 import logging
 
 from click import BadParameter
-from codablellm import __version__, repoman
-from codablellm.core import decompiler as codablellm_decompiler, utils
-from codablellm.core import downloader
-from codablellm.core import extractor as codablellm_extractor
-from codablellm.core.function import SourceFunction
-from codablellm.dataset import DecompiledCodeDataset, SourceCodeDataset
 from enum import Enum
 from pathlib import Path
 from rich import print
 from typer import Argument, Exit, Option, Typer
 from typing import Callable, Dict, Final, List, Optional, Tuple
 
+import codablellm
+from codablellm import repoman
+from codablellm.core import decompiler as codablellm_decompiler, utils
+from codablellm.core import downloader
+from codablellm.core import extractor as codablellm_extractor
+from codablellm.core.function import SourceFunction
+from codablellm.dataset import DecompiledCodeDataset, SourceCodeDataset
 from codablellm.decompilers.ghidra import Ghidra
 
 logger = logging.getLogger('codablellm')
@@ -69,7 +70,7 @@ def toggle_debug_logging(enable: bool) -> None:
 
 def show_version(show: bool) -> None:
     if show:
-        print(f'[b]codablellm {__version__}')
+        print(f'[b]codablellm {codablellm.__version__}')
         raise Exit()
 
 
@@ -214,23 +215,33 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
         if not bins or not any(bins):
             raise BadParameter('Must specify at least one binary for decompiled code datasets.',
                                param_hint='bins')
-        ctx = repoman.manage(build, ignore_build_errors=ignore_build_errors,
-                             ignore_cleanup_errors=ignore_cleanup_errors,
-                             **utils.resolve_kwargs(cleanup_command=cleanup)) if build \
-            else nullcontext()
-        with ctx:
-            dataset = DecompiledCodeDataset.from_repository(repo, bins,
-                                                            max_decompiler_workers=max_decompiler_workers,
-                                                            max_extractor_workers=max_extractor_workers,
-                                                            accurate_progress=accurate)
-            if not build and cleanup:
-                # Cleanup repository if --clean was specified and --build was not
-                repoman.cleanup(cleanup)
+        if not build:
+            dataset = codablellm.create_decompiled_dataset(repo, bins,
+                                                           max_decompiler_workers=max_decompiler_workers,
+                                                           max_extractor_workers=max_extractor_workers,
+                                                           accurate_progress=accurate)
+        else:
+            if repo_build_arg or repo_cleanup_arg:
+                if repo_build_arg and repo_cleanup_arg:
+                    repo_arg_with = 'both'
+                else:
+                    repo_arg_with = 'build' if repo_build_arg else 'cleanup'
+            else:
+                repo_arg_with = None
+            dataset = codablellm.compile_dataset(repo, bins, build, max_decompiler_workers=max_decompiler_workers,
+                                                 max_extractor_workers=max_extractor_workers,
+                                                 progress='accurate' if accurate else 'lazy',
+                                                 transform=transform,
+                                                 transform_mode='replace' if replace_source else 'append',
+                                                 cleanup_command=cleanup,
+                                                 ignore_build_errors=ignore_build_errors,
+                                                 ignore_cleanup_errors=ignore_cleanup_errors,
+                                                 repo_arg_with=repo_arg_with)
     else:
-        dataset = SourceCodeDataset.from_repository(repo,
-                                                    transform_mode='replace' if replace_source else 'append',
-                                                    accurate_progress=accurate,
-                                                    max_workers=max_extractor_workers,
-                                                    transform=transform)
+        dataset = codablellm.create_source_dataset(repo,
+                                                   transform_mode='replace' if replace_source else 'append',
+                                                   accurate_progress=accurate,
+                                                   max_workers=max_extractor_workers,
+                                                   transform=transform)
     # Save dataset
     dataset.save_as(save_as)
