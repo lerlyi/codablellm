@@ -1,9 +1,10 @@
+from contextlib import nullcontext
 import importlib
 import json
 import logging
 
 from click import BadParameter
-from codablellm import __version__
+from codablellm import __version__, repoman
 from codablellm.core import decompiler as codablellm_decompiler, utils
 from codablellm.core import downloader
 from codablellm.core import extractor as codablellm_extractor
@@ -89,6 +90,13 @@ ACCURATE: Final[bool] = Option(True, '--accurate / --lazy',
                                'if --accurate is enabled, at a cost of more '
                                'memory usage and a longer startup time to collect '
                                'the sequence of source code files.')
+BUILD: Final[Optional[str]] = Option(None, '--build', '-b', metavar='COMMAND',
+                                     help='If --decompile is specified, the repository will be '
+                                     'built using the value of this option as the build command.')
+CLEANUP: Final[Optional[str]] = Option(None, '--cleanup', '-c', metavar='COMMAND',
+                                       help='If --decompile is specified, the repository will be '
+                                       'cleaned up after the dataset is created, using the value of '
+                                       'this option as the build command.')
 DECOMPILE: Final[bool] = Option(False, '--decompile / --source', '-d / -s',
                                 help='If the language supports decompiled code mapping, use '
                                 '--decompiler to decompile the binaries specified by the bins '
@@ -109,6 +117,13 @@ GHIDRA: Final[Optional[Path]] = Option(Ghidra.get_path(), envvar=Ghidra.ENVIRON_
                                        help="Path to Ghidra's analyzeHeadless command.")
 GIT: Final[bool] = Option(False, '--git / --archive', help='Determines whether --url is a Git '
                           'download URL or a tarball/zipfile download URL.')
+IGNORE_BUILD_ERRORS: Final[bool] = Option(False, '--ignore-build-errors',
+                                          help='Does not exit if the build command specified with '
+                                          '--build exits with a non-successful status.')
+IGNORE_CLEANUP_ERRORS: Final[bool] = Option(False, '--ignore-cleanup-errors',
+                                            help='Does not exit if the cleanup command specified '
+                                            'with --cleanup exits with a non-successful status '
+                                            '(dataset will still be saved).')
 MAX_DECOMPILER_WORKERS: Final[Optional[int]] = Option(None, min=1,
                                                       help='Maximum number of workers to use to '
                                                       'decompile binaries in parallel.')
@@ -141,12 +156,15 @@ URL: Final[str] = Option('', help='Download a remote repository and save at the 
 
 @app.command()
 def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path]] = BINS,
-            accurate: bool = ACCURATE,
+            accurate: bool = ACCURATE, build: Optional[str] = BUILD,
+            cleanup: Optional[str] = CLEANUP,
             debug: bool = DEBUG, decompile: bool = DECOMPILE,
             decompiler: Optional[Tuple[str, str]] = DECOMPILER,
             extractors: Optional[Tuple[ExtractorConfigOperation,
                                        Path]] = EXTRACTORS_ARG,
             git: bool = GIT, ghidra: Optional[Path] = GHIDRA,
+            ignore_build_errors: bool = IGNORE_BUILD_ERRORS,
+            ignore_cleanup_errors: bool = IGNORE_CLEANUP_ERRORS,
             max_decompiler_workers: Optional[int] = MAX_DECOMPILER_WORKERS,
             max_extractor_workers: Optional[int] = MAX_EXTRACTOR_WORKERS,
             replace_source: bool = REPLACE_SOURCE,
@@ -186,11 +204,18 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
         if not bins or not any(bins):
             raise BadParameter('Must specify at least one binary for decompiled code datasets.',
                                param_hint='bins')
-        dataset = DecompiledCodeDataset.from_repository(repo, bins,
-                                                        **utils.resolve_kwargs(max_decompiler_workers=max_decompiler_workers,
-                                                                               max_extractor_workers=max_extractor_workers,
-                                                                               accurate_progress=accurate,
-                                                                               transform=transform))
+        ctx = repoman.manage(build, ignore_build_errors=ignore_build_errors,
+                             ignore_cleanup_errors=ignore_cleanup_errors,
+                             **utils.resolve_kwargs(cleanup_command=cleanup)) if build \
+            else nullcontext()
+        with ctx:
+            dataset = DecompiledCodeDataset.from_repository(repo, bins,
+                                                            max_decompiler_workers=max_decompiler_workers,
+                                                            max_extractor_workers=max_extractor_workers,
+                                                            accurate_progress=accurate)
+            if not build and cleanup:
+                # Cleanup repository if --clean was specified and --build was not
+                repoman.cleanup(cleanup)
     else:
         dataset = SourceCodeDataset.from_repository(repo,
                                                     transform_mode='replace' if replace_source else 'append',

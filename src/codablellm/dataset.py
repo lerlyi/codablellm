@@ -139,7 +139,7 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
                                                      **utils.resolve_kwargs(max_workers=max_extractor_workers,
                                                                             accurate_progress=accurate_progress))
         source_functions: Deque[SourceFunction] = deque()
-        decompile_pool = decompiler.decompile(path, as_callable_pool=True,
+        decompile_pool = decompiler.decompile(bins, as_callable_pool=True,
                                               **utils.resolve_kwargs(max_workers=max_decompiler_workers))
         decompiled_functions: Deque[DecompiledFunction] = deque()
         with ProcessPoolProgress.multi_progress((original_extraction_pool,  # type: ignore

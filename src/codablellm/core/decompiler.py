@@ -69,4 +69,4 @@ def decompile(paths: Union[PathLike, Sequence[PathLike]],
     decompiler = _CallableDecompiler(paths, max_workers, *args, **kwargs)
     if as_callable_pool:
         return decompiler
-    return decompiler.get_results()
+    return decompiler()
