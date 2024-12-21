@@ -111,10 +111,10 @@ class DecompiledFunction(Function, SupportsJSON):
             assembly = assembly.replace(orig_function, stripped_symbol)
             return stripped_symbol
 
-        editor = ASTEditor(DecompiledFunction.C_PARSER, ast)
-        editor.match_and_replace(DecompiledFunction.GET_C_SYMBOLS_QUERY, {
+        editor = ASTEditor(DecompiledFunction.C_PARSER, definition)
+        editor.match_and_edit(DecompiledFunction.GET_C_SYMBOLS_QUERY, {
                                  'function.symbols': strip})
-        definition = ast.root_node.text
+        definition = editor.source_code
         first_function, *_ = (f for f in symbol_mapping.values()
                               if f.startswith('sub_'))
         return DecompiledFunction(self.uid, self.path, definition, first_function, assembly,

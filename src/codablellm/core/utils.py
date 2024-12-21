@@ -91,34 +91,44 @@ def replace_code(parser: Parser, ast: Tree, node: Node, new_code: str) -> Tree:
 
 class ASTEditor:
 
-    def __init__(self, parser: Parser, ast: Tree, ensure_parsable: bool = True) -> None:
+    def __init__(self, parser: Parser, source_code: str, ensure_parsable: bool = True) -> None:
         self.parser = parser
-        self.ast = ast
+        self.source_code = source_code
+        self.ast = self.parser.parse(source_code.encode())
         self.ensure_parsable = ensure_parsable
 
-    def replace_code(self, node: Node, new_code: str) -> None:
-        if not self.ast.root_node.text:
-            raise ValueError('Expected AST to have text')
-        code = self.ast.root_node.text.decode()
+    def edit_code(self, node: Node, new_code: str) -> None:
+        # Calculate new code metrics
         num_bytes = len(new_code)
         num_lines = new_code.count('\n')
         last_col_num_bytes = len(new_code.splitlines()[-1])
-        code = code[:node.start_byte] + new_code + code[node.end_byte:]
-        self.ast.edit(
-            node.start_byte,
-            node.end_byte,
-            node.start_byte + num_bytes,
-            node.start_point,
-            node.end_point,
-            (node.start_point.row + num_lines,
-             node.start_point.column + last_col_num_bytes)
+        # Update the source code with the new code
+        self.source_code = (
+            self.source_code[:node.start_byte] +
+            new_code +
+            self.source_code[node.end_byte:]
         )
-        self.ast = self.parser.parse(code.encode(), old_tree=self.ast)
+        # Perform the AST edit
+        self.ast.edit(
+            start_byte=node.start_byte,
+            old_end_byte=node.end_byte,
+            new_end_byte=node.start_byte + num_bytes,
+            start_point=node.start_point,
+            old_end_point=node.end_point,
+            new_end_point=(
+                node.start_point.row + num_lines,
+                node.start_point.column + last_col_num_bytes
+            )
+        )
+        # Re-parse the updated source code
+        self.ast = self.parser.parse(self.source_code.encode(),
+                                     old_tree=self.ast)
+        # Check for parsing errors if required
         if self.ensure_parsable and self.ast.root_node.has_error:
             raise ValueError('Parsing error while editing code')
 
-    def match_and_replace(self, query: str,
-                          groups_and_replacement: Dict[str, Union[str, Callable[[Node], str]]]) -> None:
+    def match_and_edit(self, query: str,
+                       groups_and_replacement: Dict[str, Union[str, Callable[[Node], str]]]) -> None:
         modified_nodes: Set[Node] = set()
         matches = self.ast.language.query(query).matches(self.ast.root_node)
         for idx in range(len(matches)):
@@ -130,7 +140,7 @@ class ASTEditor:
                     if node not in modified_nodes:
                         if not isinstance(replacement, str):
                             replacement = replacement(node)
-                        self.replace_code(node, replacement)
+                        self.edit_code(node, replacement)
                         modified_nodes.add(node)
                         matches = self.ast.language.query(
                             query).matches(self.ast.root_node)
