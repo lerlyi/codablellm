@@ -1,14 +1,13 @@
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import ClassVar, Dict, Final, Optional, Set, TypedDict
+from typing import ClassVar, Dict, Final, Optional, TypedDict
 import uuid
 
 from tree_sitter import Node, Parser
 from tree_sitter import Language, Parser
 import tree_sitter_c as tsc
 
-from codablellm.core import utils
 from codablellm.core.utils import ASTEditor, SupportsJSON
 
 
@@ -93,7 +92,7 @@ class DecompiledFunction(Function, SupportsJSON):
         ')'
     )
     C_PARSER: ClassVar[Final[Parser]] = Parser(Language(tsc.language()))
-
+    
     def to_stripped(self) -> 'DecompiledFunction':
         definition = self.definition
         assembly = self.assembly

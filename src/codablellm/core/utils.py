@@ -1,6 +1,5 @@
-from ast import TypeVar
 from pathlib import Path
-from typing import Any, Callable, Dict, Generator, List, Optional, Protocol, Set, Tuple, Type, Union
+from typing import Any, Callable, Dict, List, Optional, Protocol, Set, Type, TypeVar, Union
 
 from tree_sitter import Node, Parser, Tree
 

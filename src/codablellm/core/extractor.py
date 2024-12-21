@@ -1,13 +1,14 @@
+from abc import ABC, abstractmethod
 import importlib
 import logging
-
-from abc import ABC, abstractmethod
-from codablellm.core.function import SourceFunction
-from codablellm.core.utils import PathLike
 from pathlib import Path
-from typing import Any, Callable, Final, Generator, List, Literal, Mapping, Optional, OrderedDict, Sequence, Tuple, Union, overload
+from typing import (
+    Any, Callable, Final, Generator, List, Literal, Mapping, Optional, OrderedDict, Sequence,
+    Tuple, Union, overload)
 
 from codablellm.core.dashboard import CallablePoolProgress, ProcessPoolProgress, Progress
+from codablellm.core.function import SourceFunction
+from codablellm.core.utils import PathLike
 
 EXTRACTORS: Final[OrderedDict[str, str]] = OrderedDict({
     'C': 'codablellm.languages.c.CExtractor'

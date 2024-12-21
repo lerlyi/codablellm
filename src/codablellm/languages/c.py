@@ -1,13 +1,14 @@
 
 import itertools
+from pathlib import Path
+from typing import Final, Sequence
+
+from tree_sitter import Language, Parser
 import tree_sitter_c as tsc
 
 from codablellm.core.extractor import Extractor
 from codablellm.core.function import SourceFunction
 from codablellm.core.utils import PathLike
-from pathlib import Path
-from tree_sitter import Language, Parser
-from typing import Final, Sequence
 
 TREE_SITTER_QUERY: Final[str] = (
     '(function_definition'
