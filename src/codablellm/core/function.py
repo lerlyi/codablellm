@@ -97,7 +97,6 @@ class DecompiledFunction(Function, SupportsJSON):
     def to_stripped(self) -> 'DecompiledFunction':
         definition = self.definition
         assembly = self.assembly
-        ast = DecompiledFunction.C_PARSER.parse(definition.encode())
         symbol_mapping: Dict[str, str] = {}
 
         def strip(node: Node) -> str:
