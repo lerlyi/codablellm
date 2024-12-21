@@ -1,7 +1,8 @@
 from collections import deque
+from pathlib import Path
 from typing import List
+
 from codablellm.core import *
-from codablellm.core.dashboard import ProcessPoolProgress
 
 
 def test_progress() -> None:
@@ -74,3 +75,66 @@ def test_multi_progress() -> None:
         assert number + 3 + 5 in sums
     for string in strings:
         assert f'{string}barbaz' in concat_results
+
+
+def test_source_function(tmp_path: Path) -> None:
+    c_definition = (
+        '#include <stdio.h>'
+        '\n'
+        '\nint main(int argc, char **argv) {'
+        '\n\tprintf("Hello, world!");'
+        '\n\treturn 0;'
+        '\n}')
+    c_function = SourceFunction.from_source(tmp_path, 'C', c_definition, 'main',
+                                            20, 92)
+    assert not c_function.is_method
+    cpp_definition = (
+        '#include <iostream>'
+        '\n'
+        '\nclass Greeter {'
+        '\npublic:'
+        '\n\tvoid printHelloWorld() {'
+        '\n\t\tstd::cout << "Hello, World!" << std::endl;'
+        '\n\t}'
+        '\n};'
+        '\n'
+        '\nint main() {'
+        '\n\tGreeter greeter;'
+        '\n\tgreeter.printHelloWorld();'
+        '\n\treturn 0;'
+        '\n}'
+    )
+    cpp_function = SourceFunction.from_source(tmp_path, 'C++', cpp_definition, 'printHelloWorld',
+                                              46, 117, class_name='Greeter')
+    assert cpp_function.is_method
+
+
+def test_decompiled_function(tmp_path: Path) -> None:
+    asm = (
+        'addTwoNumbers:'
+        '\n\tpush rbp'
+        '\n\tmov rbp, rsp'
+        '\n\tmov eax, edi'
+        '\n\tadd eax, esi'
+        '\n\tmov esi, eax'
+        '\n\tlea rdi, [rel format]'
+        '\n\txor eax, eax'
+        '\n\tcall printf'
+        '\n\tpop rbp'
+        '\n\tret'
+    )
+    definition = (
+        'void addTwoNumbers(int param_1, int param_2) {'
+        '\n\tint param_3 = param_1 + param_2;'
+        '\n\tprintf("The result is: %d", param_3);'
+        '\n}'
+    )
+    uid = SourceFunction.from_source(
+        tmp_path, 'C', definition, 'addTwoNumbers', 0, 1).uid
+    decompiled_function = DecompiledFunction(uid, tmp_path, definition, 'addTwoNumbers', asm,
+                                             'x86')
+    stripped_function = decompiled_function.to_stripped()
+    assert 'printf' not in stripped_function.definition
+    assert 'addTwoNumbers' not in stripped_function.definition
+    assert 'printf' not in stripped_function.assembly
+    assert 'addTwoNumbers' not in stripped_function.assembly

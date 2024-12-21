@@ -1,7 +1,8 @@
 from ast import TypeVar
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Protocol, Type, Union
+from typing import Any, Callable, Dict, Generator, List, Optional, Protocol, Set, Tuple, Type, Union
 
+from tree_sitter import Node, Parser, Tree
 
 PathLike = Union[Path, str]
 JSONValue = Optional[Union[str, int, float,
@@ -65,3 +66,72 @@ def is_binary(file_path: PathLike) -> bool:
 
 def resolve_kwargs(**kwargs: Any) -> Dict[str, Any]:
     return {k: v for k, v in kwargs.items() if v is not None}
+
+
+def replace_code(parser: Parser, ast: Tree, node: Node, new_code: str) -> Tree:
+    if not ast.root_node.text:
+        raise ValueError('Expected AST to have text')
+    code = ast.root_node.text.decode()
+    num_bytes = len(new_code)
+    num_lines = new_code.count('\n')
+    last_col_num_bytes = len(new_code.splitlines()[-1])
+    code = code[:node.start_byte] + new_code + code[node.end_byte:]
+    ast.edit(
+        node.start_byte,
+        node.end_byte,
+        node.start_byte + num_bytes,
+        node.start_point,
+        node.end_point,
+        (node.start_point.row + num_lines,
+         node.start_point.column + last_col_num_bytes)
+    )
+    ast = parser.parse(code.encode(), old_tree=ast)
+    return ast
+
+
+class ASTEditor:
+
+    def __init__(self, parser: Parser, ast: Tree, ensure_parsable: bool = True) -> None:
+        self.parser = parser
+        self.ast = ast
+        self.ensure_parsable = ensure_parsable
+
+    def replace_code(self, node: Node, new_code: str) -> None:
+        if not self.ast.root_node.text:
+            raise ValueError('Expected AST to have text')
+        code = self.ast.root_node.text.decode()
+        num_bytes = len(new_code)
+        num_lines = new_code.count('\n')
+        last_col_num_bytes = len(new_code.splitlines()[-1])
+        code = code[:node.start_byte] + new_code + code[node.end_byte:]
+        self.ast.edit(
+            node.start_byte,
+            node.end_byte,
+            node.start_byte + num_bytes,
+            node.start_point,
+            node.end_point,
+            (node.start_point.row + num_lines,
+             node.start_point.column + last_col_num_bytes)
+        )
+        self.ast = self.parser.parse(code.encode(), old_tree=self.ast)
+        if self.ensure_parsable and self.ast.root_node.has_error:
+            raise ValueError('Parsing error while editing code')
+
+    def match_and_replace(self, query: str,
+                          groups_and_replacement: Dict[str, Union[str, Callable[[Node], str]]]) -> None:
+        modified_nodes: Set[Node] = set()
+        matches = self.ast.language.query(query).matches(self.ast.root_node)
+        for idx in range(len(matches)):
+            _, capture = matches.pop(idx)
+            for group, replacement in groups_and_replacement.items():
+                nodes = capture.get(group)
+                if nodes:
+                    node = nodes.pop()
+                    if node not in modified_nodes:
+                        if not isinstance(replacement, str):
+                            replacement = replacement(node)
+                        self.replace_code(node, replacement)
+                        modified_nodes.add(node)
+                        matches = self.ast.language.query(
+                            query).matches(self.ast.root_node)
+                        break

@@ -1,9 +1,15 @@
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, TypedDict
+from typing import ClassVar, Dict, Final, Optional, Set, TypedDict
+import uuid
 
-from codablellm.core.utils import SupportsJSON
+from tree_sitter import Node, Parser
+from tree_sitter import Language, Parser
+import tree_sitter_c as tsc
+
+from codablellm.core import utils
+from codablellm.core.utils import ASTEditor, SupportsJSON
 
 
 @dataclass(frozen=True)
@@ -20,6 +26,12 @@ class SourceFunction(Function):
     start_byte: int
     end_byte: int
     class_name: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if self.start_byte < 0:
+            raise ValueError('Start byte must be a non-negative integer')
+        if self.start_byte >= self.end_byte:
+            raise ValueError('Start byte must be less than end byte')
 
     @property
     def is_method(self) -> bool:
@@ -69,6 +81,44 @@ class DecompiledFunction(Function, SupportsJSON):
     name: str
     assembly: str
     architecture: str
+
+    GET_C_SYMBOLS_QUERY: ClassVar[Final[str]] = (
+        '(function_definition'
+        '    declarator: (function_declarator'
+        '        declarator: (identifier) @function.symbols'
+        '    )'
+        ')'
+        '(call_expression'
+        '    function: (identifier) @function.symbols'
+        ')'
+    )
+    C_PARSER: ClassVar[Final[Parser]] = Parser(Language(tsc.language()))
+
+    def to_stripped(self) -> 'DecompiledFunction':
+        definition = self.definition
+        assembly = self.assembly
+        ast = DecompiledFunction.C_PARSER.parse(definition.encode())
+        symbol_mapping: Dict[str, str] = {}
+
+        def strip(node: Node) -> str:
+            nonlocal symbol_mapping, assembly
+            if not node.text:
+                raise ValueError('Expected all function.symbols to have '
+                                 f'text: {node}')
+            orig_function = node.text.decode()
+            stripped_symbol = symbol_mapping.setdefault(orig_function,
+                                                        f'sub_{str(uuid.uuid4()).split('-', maxsplit=1)[0]}')
+            assembly = assembly.replace(orig_function, stripped_symbol)
+            return stripped_symbol
+
+        editor = ASTEditor(DecompiledFunction.C_PARSER, ast)
+        editor.match_and_replace(DecompiledFunction.GET_C_SYMBOLS_QUERY, {
+                                 'function.symbols': strip})
+        definition = ast.root_node.text
+        first_function, *_ = (f for f in symbol_mapping.values()
+                              if f.startswith('sub_'))
+        return DecompiledFunction(self.uid, self.path, definition, first_function, assembly,
+                                  self.architecture)
 
     def to_json(self) -> DecompiledFunctionJSONObject:
         return {'uid': self.uid, 'path': str(self.path), 'definition': self.definition,
