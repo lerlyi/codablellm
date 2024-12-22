@@ -5,7 +5,7 @@ from typing import List
 import pytest
 
 from codablellm.core import *
-from codablellm.languages.c import CExtractor
+from codablellm.languages import CExtractor
 
 
 def test_progress() -> None:
@@ -144,7 +144,7 @@ def test_decompiled_function(tmp_path: Path) -> None:
 
 
 def test_extractors_config() -> None:
-    extractor.set_extractors({'C': 'codablellm.languages.c.CExtractor'})
+    extractor.set_extractors({'C': 'codablellm.languages.CExtractor'})
     assert isinstance(extractor.get_extractor('C'), CExtractor)
     with pytest.raises(ValueError):
         extractor.get_extractor('nonexistant')
