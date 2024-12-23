@@ -75,8 +75,9 @@ def compile_dataset(path: utils.PathLike, bins: Sequence[utils.PathLike], build_
                     max_decompiler_workers: Optional[int] = None,
                     transform: Optional[Callable[[SourceFunction],
                                                  SourceFunction]] = None,
-                    transform_mode: Optional[Literal['replace',
-                                                     'append']] = None,
+                    generation_mode: Optional[Literal['path',
+                                                      'temp',
+                                                      'temp-append']] = None,
                     cleanup_command: Optional[Command] = None,
                     ignore_build_errors: Optional[bool] = None,
                     ignore_cleanup_errors: Optional[bool] = None,
@@ -84,7 +85,7 @@ def compile_dataset(path: utils.PathLike, bins: Sequence[utils.PathLike], build_
                                                'lazy']] = None,
                     repo_arg_with: Optional[Literal['build',
                                                     'cleanup', 'both']] = None,
-                    ensure_compiles: bool = True) -> DecompiledCodeDataset:
+                    parallel_build: bool = True) -> DecompiledCodeDataset:
     if repo_arg_with == 'build' or repo_arg_with == 'both':
         build_command = add_command_args(build_command, path)
     if cleanup_command and (repo_arg_with == 'cleanup' or repo_arg_with == 'both'):

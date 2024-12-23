@@ -3,7 +3,7 @@ import importlib
 import logging
 from pathlib import Path
 from typing import (
-    Any, Callable, Final, Generator, List, Literal, Mapping, Optional, OrderedDict, Sequence,
+    Any, Callable, Final, Generator, List, Literal, Mapping, Optional, OrderedDict, Sequence, Set,
     Tuple, Union, overload)
 
 from codablellm.core.dashboard import CallablePoolProgress, ProcessPoolProgress, Progress
@@ -61,13 +61,29 @@ class _CallableExtractor(CallablePoolProgress[Tuple[Extractor, Path], Sequence[S
                  max_workers: Optional[int],
                  accurate_progress: bool,
                  transform: Optional[Callable[[SourceFunction], SourceFunction]],
+                 subpaths: Set[Path],
+                 subpaths_mode: Literal['exclude', 'exclusive'],
                  **kwargs: Any) -> None:
+
+        def is_relative_to(parent: Path, child: Path) -> bool:
+            try:
+                parent.relative_to(child)
+            except ValueError:
+                return False
+            return True
+
+        path = Path(path)
+        if not all(is_relative_to(path, p) for p in subpaths):
+            raise ValueError('All subpaths must be relative to the '
+                             'repository.')
 
         def generate_extractors_and_files(path: PathLike, *args, **kwargs) -> Generator[Tuple[Extractor, Path], None, None]:
             for language in EXTRACTORS:
                 extractor = get_extractor(language, *args, **kwargs)
                 for file in extractor.get_extractable_files(path):
-                    yield extractor, file
+                    if subpaths_mode == 'exclude' and not any(is_relative_to(p, file) for p in subpaths) \
+                            or subpaths_mode == 'exclusive' and any(is_relative_to(p, file) for p in subpaths):
+                        yield extractor, file
 
         if accurate_progress:
             extractors_and_files = list(generate_extractors_and_files(path, *args,

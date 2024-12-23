@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Mapping
+from contextlib import nullcontext
 from pathlib import Path
 import shutil
 from tempfile import TemporaryDirectory
@@ -69,12 +70,16 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
                         accurate_progress: Optional[bool] = None,
                         transform: Optional[Callable[[SourceFunction],
                                                      SourceFunction]] = None,
-                        transform_mode: Literal['replace', 'append'] = 'append') -> 'SourceCodeDataset':
-        if not transform or transform_mode == 'replace':
-            return cls(extractor.extract(path,
-                                         **utils.resolve_kwargs(max_workers=max_workers,
-                                                                accurate_progress=accurate_progress,
-                                                                transform=transform)))
+                        generation_mode: Literal['path', 'temp', 'temp-append'] = 'temp') -> 'SourceCodeDataset':
+        if not transform or generation_mode != 'temp-append':
+            ctx = TemporaryDirectory() if generation_mode == 'temp' and transform else nullcontext()
+            with ctx as copied_repo_dir:
+                if copied_repo_dir:
+                    shutil.copytree(path, copied_repo_dir)
+                return cls(extractor.extract(path,
+                                             **utils.resolve_kwargs(max_workers=max_workers,
+                                                                    accurate_progress=accurate_progress,
+                                                                    transform=transform)))
         original_extraction_pool = extractor.extract(path, as_callable_pool=True,
                                                      **utils.resolve_kwargs(max_workers=max_workers,
                                                                             accurate_progress=accurate_progress))

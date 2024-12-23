@@ -31,6 +31,12 @@ class ExtractorConfigOperation(str, Enum):
     APPEND = 'append'
     SET = 'set'
 
+
+class GenerationMode(str, Enum):
+    PATH = 'path'
+    TEMP = 'temp'
+    TEMP_APPEND = 'temp-append'
+
 # Argument/option validation callbacks
 
 
@@ -109,10 +115,21 @@ DECOMPILER: Final[Optional[Tuple[str, str]]] = Option((codablellm_decompiler.DEC
                                                       metavar='<TEXT CLASSPATH>')
 DEBUG: Final[bool] = Option(False, '--debug', callback=toggle_debug_logging,
                             hidden=True)
+EXCLUDE_SUBPATH: Final[Optional[List[Path]]] = Option(None,
+                                                      help='Path relative to the repository '
+                                                      'directory to exclude from the dataset '
+                                                      'generation. Cannot be used with --exclusive-subpath')
+EXCLUSIVE_SUBPATH: Final[Optional[List[Path]]] = Option(None,
+                                                        help='Path relative to the repository '
+                                                        'directory to exclusively include in the dataset '
+                                                        'generation. Cannot be used with --exclude-subpath')
 EXTRACTORS_ARG: Final[Optional[Tuple[ExtractorConfigOperation, Path]]] = Option(None, dir_okay=False, exists=True,
                                                                                 metavar='<[prepend|append|set] FILE>',
                                                                                 help='Order of extractors '
                                                                                 'to use, including custom ones.')
+GENERATION_MODE: Final[GenerationMode] = Option('temp',
+                                                help='Specify how the dataset should be '
+                                                'generated from the repository.')
 GHIDRA: Final[Optional[Path]] = Option(Ghidra.get_path(), envvar=Ghidra.ENVIRON_KEY, dir_okay=False,
                                        callback=Ghidra.set_path,
                                        help="Path to Ghidra's analyzeHeadless command.")
@@ -143,22 +160,18 @@ TRANSFORM: Final[Optional[Callable[[SourceFunction],
                                                               'when extracting source code '
                                                               'functions.',
                                                               parser=parse_transform)
-REPLACE_SOURCE: Final[bool] = Option(False, '--replace-source / --append-source',
-                                     help='If --transform is specified, determines how to '
-                                     'to merge transformed functions. In --replace-source the '
-                                     'dataset will not keep the original values and will '
-                                     'instead replace them with the transformed '
-                                     'values. --append-source will keep the original values '
-                                     'and transformed values, at the cost of more memory '
-                                     'and time to process both entries.')
 REPO_BUILD_ARG: Final[bool] = Option(False, '--repo-build-arg', '-B',
-                                     help="Will pass in the path of the repository's path as the first "
-                                     'argument for the command specified with --build. This may '
-                                     'be useful when --append-source is specified.')
+                                     help='Will append the build command with the path of the '
+                                     "repository's path as the first argument for the command "
+                                     'specified with --build. This may be useful '
+                                     'when --generation-mode temp or '
+                                     '--generation-mode temp-append is specified.')
 REPO_CLEANUP_ARG: Final[bool] = Option(False, '--repo-cleanup-arg', '-C',
-                                       help="Will pass in the path of the repository's path as the first "
-                                       'argument for the command specified with --cleanup. This may '
-                                       'be useful when --append-source is specified.')
+                                       help='Will append the cleanup command with the path of the '
+                                       "repository's path as the first argument for the command "
+                                       'specified with --cleanup. This may be useful '
+                                       'when --generation-mode temp or '
+                                       '--generation-mode temp-append is specified.')
 URL: Final[str] = Option('', help='Download a remote repository and save at the local path '
                          'specified by the REPO argument.')
 
@@ -169,25 +182,25 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
             cleanup: Optional[str] = CLEANUP,
             debug: bool = DEBUG, decompile: bool = DECOMPILE,
             decompiler: Optional[Tuple[str, str]] = DECOMPILER,
+            exclude_subpath: Optional[List[Path]] = EXCLUDE_SUBPATH,
+            exclusive_subpath: Optional[List[Path]] = EXCLUSIVE_SUBPATH,
             extractors: Optional[Tuple[ExtractorConfigOperation,
                                        Path]] = EXTRACTORS_ARG,
+            generation_mode: GenerationMode = GENERATION_MODE,
             git: bool = GIT, ghidra: Optional[Path] = GHIDRA,
             ignore_build_errors: bool = IGNORE_BUILD_ERRORS,
             ignore_cleanup_errors: bool = IGNORE_CLEANUP_ERRORS,
             max_decompiler_workers: Optional[int] = MAX_DECOMPILER_WORKERS,
             max_extractor_workers: Optional[int] = MAX_EXTRACTOR_WORKERS,
-            replace_source: bool = REPLACE_SOURCE,
             repo_build_arg: bool = REPO_BUILD_ARG,
             repo_cleanup_arg: bool = REPO_CLEANUP_ARG,
             transform: Optional[Callable[[SourceFunction],
                                          SourceFunction]] = TRANSFORM,
             url: str = URL, verbose: bool = VERBOSE, version: bool = VERSION) -> None:
-    if url:
-        # Download remote repository
-        if git:
-            downloader.clone(url, repo)
-        else:
-            downloader.decompress(url, repo)
+    # Ensure --exclusive-subpath and --exclude-subpath are not being used together
+    if exclude_subpath and exclusive_subpath:
+        raise BadParameter('Cannot use --exclusive-subpath and --exclude-subpath together',
+                           param_hint='--exclude-subpath / --exclusive-subpath')
     if decompiler:
         # Configure decompiler
         name, class_path = decompiler
@@ -210,6 +223,12 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
                 order = 'last' if operation == ExtractorConfigOperation.APPEND else 'first'
                 codablellm_extractor.add_extractor(language, class_path,
                                                    order=order)
+    if url:
+        # Download remote repository
+        if git:
+            downloader.clone(url, repo)
+        else:
+            downloader.decompress(url, repo)
     # Create source code/decompiled code dataset
     if decompile:
         if not bins or not any(bins):
@@ -232,14 +251,16 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
                                                  max_extractor_workers=max_extractor_workers,
                                                  progress='accurate' if accurate else 'lazy',
                                                  transform=transform,
-                                                 transform_mode='replace' if replace_source else 'append',
+                                                 generation_mode=str(
+                                                     generation_mode),  # type: ignore
                                                  cleanup_command=cleanup,
                                                  ignore_build_errors=ignore_build_errors,
                                                  ignore_cleanup_errors=ignore_cleanup_errors,
                                                  repo_arg_with=repo_arg_with)
     else:
         dataset = codablellm.create_source_dataset(repo,
-                                                   transform_mode='replace' if replace_source else 'append',
+                                                   generation_mode=str(
+                                                       generation_mode),  # type: ignore
                                                    accurate_progress=accurate,
                                                    max_workers=max_extractor_workers,
                                                    transform=transform)
