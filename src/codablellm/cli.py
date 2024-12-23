@@ -118,11 +118,11 @@ DEBUG: Final[bool] = Option(False, '--debug', callback=toggle_debug_logging,
 EXCLUDE_SUBPATH: Final[Optional[List[Path]]] = Option(None,
                                                       help='Path relative to the repository '
                                                       'directory to exclude from the dataset '
-                                                      'generation. Cannot be used with --exclusive-subpath')
+                                                      'generation.')
 EXCLUSIVE_SUBPATH: Final[Optional[List[Path]]] = Option(None,
                                                         help='Path relative to the repository '
                                                         'directory to exclusively include in the dataset '
-                                                        'generation. Cannot be used with --exclude-subpath')
+                                                        'generation.')
 EXTRACTORS_ARG: Final[Optional[Tuple[ExtractorConfigOperation, Path]]] = Option(None, dir_okay=False, exists=True,
                                                                                 metavar='<[prepend|append|set] FILE>',
                                                                                 help='Order of extractors '
@@ -197,10 +197,6 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
             transform: Optional[Callable[[SourceFunction],
                                          SourceFunction]] = TRANSFORM,
             url: str = URL, verbose: bool = VERBOSE, version: bool = VERSION) -> None:
-    # Ensure --exclusive-subpath and --exclude-subpath are not being used together
-    if exclude_subpath and exclusive_subpath:
-        raise BadParameter('Cannot use --exclusive-subpath and --exclude-subpath together',
-                           param_hint='--exclude-subpath / --exclusive-subpath')
     if decompiler:
         # Configure decompiler
         name, class_path = decompiler

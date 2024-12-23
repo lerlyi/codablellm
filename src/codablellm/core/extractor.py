@@ -61,8 +61,8 @@ class _CallableExtractor(CallablePoolProgress[Tuple[Extractor, Path], Sequence[S
                  max_workers: Optional[int],
                  accurate_progress: bool,
                  transform: Optional[Callable[[SourceFunction], SourceFunction]],
-                 subpaths: Set[Path],
-                 subpaths_mode: Literal['exclude', 'exclusive'],
+                 exclusive_subpaths: Set[Path],
+                 exclude_subpaths: Set[Path],
                  **kwargs: Any) -> None:
 
         def is_relative_to(parent: Path, child: Path) -> bool:
@@ -72,8 +72,12 @@ class _CallableExtractor(CallablePoolProgress[Tuple[Extractor, Path], Sequence[S
                 return False
             return True
 
+        if exclude_subpaths & exclusive_subpaths:
+            raise ValueError('Cannot have overlapping paths in exclude_subpaths and '
+                             'exclusive_subpaths')
         path = Path(path)
-        if not all(is_relative_to(path, p) for p in subpaths):
+        if not all(is_relative_to(path, p)
+                   for subpaths in [exclusive_subpaths, exclude_subpaths] for p in subpaths):
             raise ValueError('All subpaths must be relative to the '
                              'repository.')
 
@@ -81,8 +85,8 @@ class _CallableExtractor(CallablePoolProgress[Tuple[Extractor, Path], Sequence[S
             for language in EXTRACTORS:
                 extractor = get_extractor(language, *args, **kwargs)
                 for file in extractor.get_extractable_files(path):
-                    if subpaths_mode == 'exclude' and not any(is_relative_to(p, file) for p in subpaths) \
-                            or subpaths_mode == 'exclusive' and any(is_relative_to(p, file) for p in subpaths):
+                    if not any(is_relative_to(p, file) for p in exclude_subpaths) \
+                            or any(is_relative_to(p, file) for p in exclusive_subpaths):
                         yield extractor, file
 
         if accurate_progress:
