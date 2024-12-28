@@ -18,6 +18,10 @@ def add_command_args(command: Command, *args: Any) -> Command:
     return [*command, *args] if not isinstance(Command, str) else [command, *args]
 
 
+def chain_command(command: Command, other: Command) -> Command:
+    return add_command_args(command, ';', other)
+
+
 def execute_command(command: Command, ignore_errors: bool = False,
                     task: Optional[str] = None, show_progress: bool = True) -> None:
     '''
