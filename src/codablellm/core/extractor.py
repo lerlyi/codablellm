@@ -133,7 +133,9 @@ def extract(path: PathLike, *args: Any,
                                          SourceFunction]] = None,
             **kwargs: Any) -> Union[List[SourceFunction],
                                     _CallableExtractor]:
-    extractor = _CallableExtractor(path, *args, max_workers, accurate_progress, transform,
+    extractor = _CallableExtractor(path, *args, max_workers=max_workers,
+                                   accurate_progress=accurate_progress, transform=transform,
+                                   exclude_subpaths=set(), exclusive_subpaths=set(),
                                    **kwargs)
     if as_callable_pool:
         return extractor

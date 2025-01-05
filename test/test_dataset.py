@@ -14,3 +14,8 @@ def test_save_dataset(tmp_path: Path) -> None:
         empty_dataset.save_as(path)
     with pytest.raises(ValueError):
         empty_dataset.save_as(tmp_path / 'dataset.unknown')
+
+def test_source_dataset(c_repository: Path) -> None:
+    dataset = SourceCodeDataset.from_repository(c_repository)
+    assert len(dataset) == 9
+    assert len(dataset) == len(list(dataset))

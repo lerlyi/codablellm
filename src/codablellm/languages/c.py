@@ -36,7 +36,7 @@ class CExtractor(Extractor):
                                  'text')
             functions.append(SourceFunction.from_source(path, CExtractor.NAME,
                                                         function_definition.text.decode(),
-                                                        function_definition.text.decode(),
+                                                        function_name.text.decode(),
                                                         function_definition.start_byte,
                                                         function_definition.end_byte))
         return functions

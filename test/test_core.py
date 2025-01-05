@@ -82,8 +82,6 @@ def test_multi_progress() -> None:
 
 def test_source_function(tmp_path: Path) -> None:
     c_definition = (
-        '#include <stdio.h>'
-        '\n'
         '\nint main(int argc, char **argv) {'
         '\n\tprintf("Hello, world!");'
         '\n\treturn 0;'
@@ -91,25 +89,16 @@ def test_source_function(tmp_path: Path) -> None:
     c_function = SourceFunction.from_source(tmp_path, 'C', c_definition, 'main',
                                             20, 92)
     assert not c_function.is_method
+    assert c_function.uid == f'{tmp_path}:main'
     cpp_definition = (
-        '#include <iostream>'
-        '\n'
-        '\nclass Greeter {'
-        '\npublic:'
         '\n\tvoid printHelloWorld() {'
         '\n\t\tstd::cout << "Hello, World!" << std::endl;'
         '\n\t}'
-        '\n};'
-        '\n'
-        '\nint main() {'
-        '\n\tGreeter greeter;'
-        '\n\tgreeter.printHelloWorld();'
-        '\n\treturn 0;'
-        '\n}'
     )
     cpp_function = SourceFunction.from_source(tmp_path, 'C++', cpp_definition, 'printHelloWorld',
                                               46, 117, class_name='Greeter')
     assert cpp_function.is_method
+    assert cpp_function.uid == f'{tmp_path}:Greeter.printHelloWorld'
 
 
 def test_decompiled_function(tmp_path: Path) -> None:

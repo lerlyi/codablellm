@@ -1,3 +1,4 @@
+from calendar import c
 from pathlib import Path
 from codablellm.core.function import SourceFunction
 from codablellm.languages import *
@@ -5,12 +6,21 @@ from codablellm.languages import *
 
 def test_c_extraction(tmp_path: Path) -> None:
     c_file = tmp_path / 'main.c'
+    c_definition = (
+        'int main(int argc, char **argv) {'
+        '\n\tprintf("Hello, world!");'
+        '\n\treturn 0;'
+        '\n}')
     c_code = ('#include <stdio.h>'
               '\n'
-              '\nint main(int argc, char **argv) {'
-              '\n\tprintf("Hello, world!");'
-              '\n\treturn 0;'
+              f'\n{c_definition}'
               '\n}')
     c_file.write_text(c_code)
-    assert SourceFunction.from_source(c_file, 'C', c_code, 'main',
-                                      20, 92) in CExtractor().extract(c_file)
+    functions = CExtractor().extract(c_file)
+    assert len(functions) == 1
+    function, = functions
+    assert function.name == 'main'
+    assert function.language == 'C'
+    assert function.definition.splitlines() == c_definition.splitlines()
+    assert function.path == c_file
+    assert function.uid == f'{c_file}:main'
