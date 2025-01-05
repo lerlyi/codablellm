@@ -66,28 +66,6 @@ def is_binary(file_path: PathLike) -> bool:
 def resolve_kwargs(**kwargs: Any) -> Dict[str, Any]:
     return {k: v for k, v in kwargs.items() if v is not None}
 
-
-def replace_code(parser: Parser, ast: Tree, node: Node, new_code: str) -> Tree:
-    if not ast.root_node.text:
-        raise ValueError('Expected AST to have text')
-    code = ast.root_node.text.decode()
-    num_bytes = len(new_code)
-    num_lines = new_code.count('\n')
-    last_col_num_bytes = len(new_code.splitlines()[-1])
-    code = code[:node.start_byte] + new_code + code[node.end_byte:]
-    ast.edit(
-        node.start_byte,
-        node.end_byte,
-        node.start_byte + num_bytes,
-        node.start_point,
-        node.end_point,
-        (node.start_point.row + num_lines,
-         node.start_point.column + last_col_num_bytes)
-    )
-    ast = parser.parse(code.encode(), old_tree=ast)
-    return ast
-
-
 class ASTEditor:
 
     def __init__(self, parser: Parser, source_code: str, ensure_parsable: bool = True) -> None:

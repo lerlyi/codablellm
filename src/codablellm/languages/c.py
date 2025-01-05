@@ -31,7 +31,7 @@ class CExtractor(Extractor):
         for _, group in CExtractor.LANGUAGE.query(TREE_SITTER_QUERY).matches(ast.root_node):
             function_definition, = group['function.definition']
             function_name, = group['function.name']
-            if not function_definition.text or function_name.text:
+            if not function_definition.text or not function_name.text:
                 raise ValueError('Expected function.name and function.definition to have '
                                  'text')
             functions.append(SourceFunction.from_source(path, CExtractor.NAME,
