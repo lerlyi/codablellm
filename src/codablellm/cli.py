@@ -1,4 +1,3 @@
-from contextlib import nullcontext
 import importlib
 import json
 import logging
@@ -11,12 +10,8 @@ from typer import Argument, Exit, Option, Typer
 from typing import Callable, Dict, Final, List, Optional, Tuple
 
 import codablellm
-from codablellm import repoman
-from codablellm.core import decompiler as codablellm_decompiler, utils
 from codablellm.core import downloader
-from codablellm.core import extractor as codablellm_extractor
 from codablellm.core.function import SourceFunction
-from codablellm.dataset import DecompiledCodeDataset, SourceCodeDataset
 from codablellm.decompilers.ghidra import Ghidra
 
 logger = logging.getLogger('codablellm')
@@ -108,8 +103,8 @@ DECOMPILE: Final[bool] = Option(False, '--decompile / --source', '-d / -s',
                                 help='If the language supports decompiled code mapping, use '
                                 '--decompiler to decompile the binaries specified by the bins '
                                 'argument and add decompiled code to the dataset.')
-DECOMPILER: Final[Optional[Tuple[str, str]]] = Option((codablellm_decompiler.DECOMPILER['name'],
-                                                       codablellm_decompiler.DECOMPILER['class_path']
+DECOMPILER: Final[Optional[Tuple[str, str]]] = Option((codablellm.decompiler.DECOMPILER['name'],
+                                                       codablellm.decompiler.DECOMPILER['class_path']
                                                        ),
                                                       help='Decompiler to use.',
                                                       metavar='<TEXT CLASSPATH>')
@@ -200,7 +195,7 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
     if decompiler:
         # Configure decompiler
         name, class_path = decompiler
-        codablellm_decompiler.set_decompiler(name, class_path)
+        codablellm.decompiler.set_decompiler(name, class_path)
     if extractors:
         # Configure function extractors
         operation, config_file = extractors
@@ -213,11 +208,11 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
             raise BadParameter('Could not decode extractor configuration file.',
                                param_hint='--extractors') from e
         if operation == ExtractorConfigOperation.SET:
-            codablellm_extractor.set_extractors(configured_extractors)
+            codablellm.extractor.set_extractors(configured_extractors)
         else:
             for language, class_path in configured_extractors.items():
                 order = 'last' if operation == ExtractorConfigOperation.APPEND else 'first'
-                codablellm_extractor.add_extractor(language, class_path,
+                codablellm.extractor.add_extractor(language, class_path,
                                                    order=order)
     if url:
         # Download remote repository

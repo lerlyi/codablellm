@@ -1,5 +1,6 @@
 from contextlib import contextmanager, nullcontext
 import logging
+from pathlib import Path
 import subprocess
 from typing import Any, Callable, Generator, Literal, Optional, Sequence, Union
 
@@ -88,20 +89,54 @@ def compile_dataset(path: utils.PathLike, bins: Sequence[utils.PathLike], build_
                     progress: Optional[Literal['accurate',
                                                'lazy']] = None,
                     repo_arg_with: Optional[Literal['build',
-                                                    'cleanup', 'both']] = None,
-                    parallel_build: bool = True) -> DecompiledCodeDataset:
+                                                    'cleanup', 'both']] = None) -> DecompiledCodeDataset:
+    if (generation_mode == 'temp' or generation_mode == 'temp-append') and not transform:
+        generation_mode = 'path'
     if repo_arg_with == 'build' or repo_arg_with == 'both':
         build_command = add_command_args(build_command, path)
     if cleanup_command and (repo_arg_with == 'cleanup' or repo_arg_with == 'both'):
         cleanup_command = add_command_args(cleanup_command, path)
-    with manage(build_command, **utils.resolve_kwargs(cleanup_command=cleanup_command,
-                                                      ignore_build_errors=ignore_build_errors,
-                                                      ignore_cleanup_errors=ignore_cleanup_errors,
-                                                      show_progress=progress)):
-        if progress:
-            accurate_progress = True if progress == 'accurate' else False
+    if progress:
+        accurate_progress = progress == 'accurate'
+    else:
+        accurate_progress = None
+    if transform:
+        modified_source_dataset = create_source_dataset(path,
+                                                        generation_mode='path' if generation_mode == 'path' else 'temp',
+                                                        transform=transform,
+                                                        delete_temp=False,
+                                                        **utils.resolve_kwargs(max_workers=max_extractor_workers,
+                                                                               accurate_progress=accurate_progress,
+                                                                               ))
+        if generation_mode == 'temp' or generation_mode == 'temp-append':
+            modified_repo_path = modified_source_dataset.get_common_path()
+            bins = [Path(b) for b in bins]
+            modified_bins = [modified_repo_path.parent / Path(*b.parts[b.parts.index(modified_repo_path.name):])
+                             for b in bins]
         else:
-            accurate_progress = None
-        return create_decompiled_dataset(path, bins, **utils.resolve_kwargs(max_extractor_workers=max_extractor_workers,
-                                                                            max_decompiler_workers=max_decompiler_workers,
-                                                                            accurate_progress=accurate_progress))
+            modified_bins = bins
+        with manage(build_command, **utils.resolve_kwargs(cleanup_command=cleanup_command,
+                                                          ignore_build_errors=ignore_build_errors,
+                                                          ignore_cleanup_errors=ignore_cleanup_errors,
+                                                          show_progress=progress)):
+            modified_decompiled_dataset = DecompiledCodeDataset.from_source_code_dataset(modified_source_dataset, modified_bins,
+                                                                                         **utils.resolve_kwargs(max_workers=max_decompiler_workers,))
+            if generation_mode == 'temp' or generation_mode == 'path':
+                return modified_decompiled_dataset
+            return DecompiledCodeDataset.concat(modified_decompiled_dataset, compile_dataset(path, bins, build_command,
+                                                                                             max_extractor_workers=max_extractor_workers,
+                                                                                             max_decompiler_workers=max_decompiler_workers,
+                                                                                             cleanup_command=cleanup_command,
+                                                                                             ignore_build_errors=ignore_build_errors,
+                                                                                             ignore_cleanup_errors=ignore_cleanup_errors,
+                                                                                             progress=progress,
+                                                                                             repo_arg_with=repo_arg_with))
+    else:
+        with manage(build_command, **utils.resolve_kwargs(cleanup_command=cleanup_command,
+                                                          ignore_build_errors=ignore_build_errors,
+                                                          ignore_cleanup_errors=ignore_cleanup_errors,
+                                                          show_progress=progress)):
+            return create_decompiled_dataset(path, bins, **utils.resolve_kwargs(max_extractor_workers=max_extractor_workers,
+                                                                                max_decompiler_workers=max_decompiler_workers,
+                                                                                accurate_progress=accurate_progress,
+                                                                                ))

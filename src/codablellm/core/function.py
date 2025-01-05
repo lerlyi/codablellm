@@ -81,7 +81,7 @@ class DecompiledFunction(Function, SupportsJSON):
     assembly: str
     architecture: str
 
-    GET_C_SYMBOLS_QUERY: ClassVar[Final[str]] = (
+    GET_C_SYMBOLS_QUERY: Final[ClassVar[str]] = (
         '(function_definition'
         '    declarator: (function_declarator'
         '        declarator: (identifier) @function.symbols'
@@ -91,7 +91,7 @@ class DecompiledFunction(Function, SupportsJSON):
         '    function: (identifier) @function.symbols'
         ')'
     )
-    C_PARSER: ClassVar[Final[Parser]] = Parser(Language(tsc.language()))
+    C_PARSER: Final[ClassVar[Parser]] = Parser(Language(tsc.language()))
     
     def to_stripped(self) -> 'DecompiledFunction':
         definition = self.definition

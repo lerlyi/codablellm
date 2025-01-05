@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Mapping
 from contextlib import nullcontext
+import os
 from pathlib import Path
 import shutil
 from tempfile import TemporaryDirectory
@@ -65,17 +66,24 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
     def to_df(self) -> DataFrame:
         return DataFrame.from_dict(self._mapping)
 
+    def get_common_path(self) -> Path:
+        return Path(os.path.commonpath(f.path for f in self.values()))
+
     @classmethod
     def from_repository(cls, path: utils.PathLike, max_workers: Optional[int] = None,
                         accurate_progress: Optional[bool] = None,
                         transform: Optional[Callable[[SourceFunction],
                                                      SourceFunction]] = None,
-                        generation_mode: Literal['path', 'temp', 'temp-append'] = 'temp') -> 'SourceCodeDataset':
+                        generation_mode: Literal['path',
+                                                 'temp', 'temp-append'] = 'temp',
+                        delete_temp: bool = True) -> 'SourceCodeDataset':
         if not transform or generation_mode != 'temp-append':
-            ctx = TemporaryDirectory() if generation_mode == 'temp' and transform else nullcontext()
+            ctx = TemporaryDirectory(delete=delete_temp) if generation_mode == 'temp' and transform \
+                else nullcontext()
             with ctx as copied_repo_dir:
                 if copied_repo_dir:
                     shutil.copytree(path, copied_repo_dir)
+                    path = copied_repo_dir
                 return cls(extractor.extract(path,
                                              **utils.resolve_kwargs(max_workers=max_workers,
                                                                     accurate_progress=accurate_progress,
@@ -84,7 +92,7 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
                                                      **utils.resolve_kwargs(max_workers=max_workers,
                                                                             accurate_progress=accurate_progress))
         original_extraction_results: Deque[SourceFunction] = deque()
-        with TemporaryDirectory() as copied_repo_dir:
+        with TemporaryDirectory(delete=delete_temp) as copied_repo_dir:
             shutil.copytree(path, copied_repo_dir)
             modified_extraction_pool = extractor.extract(path, as_callable_pool=True,
                                                          **utils.resolve_kwargs(max_workers=max_workers,
@@ -177,3 +185,7 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
         return cls._from_dataset_and_decompiled(dataset, decompiler.decompile(bins,
                                                                               **utils.resolve_kwargs(max_workers=max_workers)),
                                                 stripped)
+
+    @classmethod
+    def concat(cls, *datasets: 'DecompiledCodeDataset') -> 'DecompiledCodeDataset':
+        return cls(m for d in datasets for m in d.values())

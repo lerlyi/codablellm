@@ -2,11 +2,13 @@ import logging
 
 from rich.logging import RichHandler
 
+from codablellm.core import extractor, decompiler
 from codablellm.repoman import create_source_dataset, create_decompiled_dataset, compile_dataset
 
 __version__ = '1.0.0'
 __all__ = ['create_source_dataset',
-           'create_decompiled_dataset', 'compile_dataset']
+           'create_decompiled_dataset', 'compile_dataset',
+           'extractor', 'decompiler']
 
 # Configure logger
 logging.basicConfig(
