@@ -15,7 +15,10 @@ def test_save_dataset(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         empty_dataset.save_as(tmp_path / 'dataset.unknown')
 
+
 def test_source_dataset(c_repository: Path) -> None:
-    dataset = SourceCodeDataset.from_repository(c_repository)
-    assert len(dataset) == 9
-    assert len(dataset) == len(list(dataset))
+    dataset = SourceCodeDataset.from_repository(c_repository,
+                                                generation_mode='path')
+    assert len(dataset) == 8
+    assert dataset.get_common_path() == c_repository
+    assert dataset.get(f'{c_repository / "file1.c"}:function1') is not None

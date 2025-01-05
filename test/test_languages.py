@@ -14,7 +14,7 @@ def test_c_extraction(tmp_path: Path) -> None:
     c_code = ('#include <stdio.h>'
               '\n'
               f'\n{c_definition}'
-              '\n}')
+              '\n')
     c_file.write_text(c_code)
     functions = CExtractor().extract(c_file)
     assert len(functions) == 1
