@@ -40,7 +40,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 COPY . .
 
 # Install the package
-RUN python -m pip install .[langs,angr]
+RUN python -m pip install .[all]
 
 # Install Ghidra
 RUN sudo apt install openjdk-21-jdk

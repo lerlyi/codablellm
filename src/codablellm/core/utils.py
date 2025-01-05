@@ -1,3 +1,5 @@
+from functools import wraps
+import importlib
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Protocol, Set, Type, TypeVar, Union
 
@@ -66,6 +68,7 @@ def is_binary(file_path: PathLike) -> bool:
 def resolve_kwargs(**kwargs: Any) -> Dict[str, Any]:
     return {k: v for k, v in kwargs.items() if v is not None}
 
+
 class ASTEditor:
 
     def __init__(self, parser: Parser, source_code: str, ensure_parsable: bool = True) -> None:
@@ -122,3 +125,17 @@ class ASTEditor:
                         matches = self.ast.language.query(
                             query).matches(self.ast.root_node)
                         break
+
+
+def requires_extra(extra: str, feature: str, module: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        @wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            try:
+                importlib.import_module(module)
+            except ImportError as e:
+                raise ImportError(f'{feature} requires the "{extra}" extra to be installed. '
+                                  f'Install with "pip install codablellm[{extra}]"') from e
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator

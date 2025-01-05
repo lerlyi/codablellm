@@ -16,6 +16,14 @@ classifiers = [
 ]
 dependencies = ["tree-sitter>=0.23.2", "tree-sitter-c>=0.23.2", "typer>=0.15.1"]
 
+[project.optional-dependencies]
+# Different dataset formats
+"excel" = ["openpyxl>=3.1.5"]
+"markdown" = ["tabulate>=0.9.0"]
+"xml" = ["lxml>=5.3.0"]
+# All optional dependencies
+"all" = ["openpyxl>=3.1.5", "tabulate>=0.9.0", "lxml>=5.3.0"]
+
 [project.scripts]
 codablellm = "codablellm.__main__:app"
 

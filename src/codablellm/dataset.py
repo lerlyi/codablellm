@@ -24,22 +24,35 @@ class Dataset(ABC):
         pass
 
     def save_as(self, path: utils.PathLike) -> None:
+
+        @utils.requires_extra('excel', 'Excel exports', 'openpyxl')
+        def to_excel(df: DataFrame, path: Path) -> None:
+            df.to_excel(path)
+
+        @utils.requires_extra('xml', 'XML exports', 'lxml')
+        def to_xml(df: DataFrame, path: Path) -> None:
+            df.to_xml(path)
+
+        @utils.requires_extra('markdown', 'Markdown exports', 'tabulate')
+        def to_markdown(df: DataFrame, path: Path) -> None:
+            df.to_markdown(path)
+
         path = Path(path)
         extension = path.suffix.casefold()
         if extension in [e.casefold() for e in ['.json', '.jsonl']]:
-            self.to_df().to_json(path, lines=extension == '.jsonl'.casefold())
+            self.to_df().to_json(path, lines=extension == '.jsonl'.casefold(), orient='records')
         elif extension in [e.casefold() for e in ['.csv', '.tsv']]:
             self.to_df().to_csv(sep=',' if extension == '.csv'.casefold() else '\t')
         elif extension in [e.casefold() for e in ['.xlsx', '.xls', '.xlsm']]:
-            self.to_df().to_excel(path)
+            to_excel(self.to_df(), path)
         elif extension in [e.casefold() for e in ['.md', '.markdown']]:
-            self.to_df().to_markdown(path)
+            to_markdown(self.to_df(), path)
         elif extension == '.tex'.casefold():
             self.to_df().to_latex(path)
         elif extension in [e.casefold() for e in ['.html', '.htm']]:
             self.to_df().to_html(path)
         elif extension == '.xml'.casefold():
-            self.to_df().to_xml(path)
+            to_xml(self.to_df(), path)
         else:
             raise ValueError(f'Unsupported file extension: {path.suffix}')
 
