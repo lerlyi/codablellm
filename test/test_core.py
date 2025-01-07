@@ -1,10 +1,13 @@
 from collections import deque
 from pathlib import Path
+from queue import Queue
 from typing import List
 
 import pytest
 
 from codablellm.core import *
+from codablellm.core import utils
+from codablellm.exceptions import ExtractorNotFound
 from codablellm.languages import CExtractor
 
 
@@ -69,15 +72,13 @@ class CallableConcat(CallablePoolProgress[str, str, List[str]]):
 def test_multi_progress() -> None:
     numbers = [1, 2, 3, 4, 5, None]
     strings = ['foo', 'bar', 'baz']
-    add, concat = CallableAdd(
-        numbers, 3, 5), CallableConcat(strings, 'bar', 'baz')
-    sums, concat_results = deque(), deque()
-    with ProcessPoolProgress.multi_progress((add, sums), (concat, concat_results)):
-        pass
+    add = CallableAdd(numbers, 3, 5)
+    concat = CallableConcat(strings, 'bar', 'baz')
+    sums, results = ProcessPoolProgress.multi_progress(add, concat)
     for number in numbers[:-1]:
         assert number + 3 + 5 in sums
     for string in strings:
-        assert f'{string}barbaz' in concat_results
+        assert f'{string}barbaz' in results
 
 
 def test_source_function(tmp_path: Path) -> None:
@@ -89,7 +90,7 @@ def test_source_function(tmp_path: Path) -> None:
     c_function = SourceFunction.from_source(tmp_path, 'C', c_definition, 'main',
                                             20, 92)
     assert not c_function.is_method
-    assert c_function.uid == f'{tmp_path}:main'
+    assert c_function.uid == f'{tmp_path.name}::main'
     cpp_definition = (
         '\n\tvoid printHelloWorld() {'
         '\n\t\tstd::cout << "Hello, World!" << std::endl;'
@@ -98,7 +99,7 @@ def test_source_function(tmp_path: Path) -> None:
     cpp_function = SourceFunction.from_source(tmp_path, 'C++', cpp_definition, 'printHelloWorld',
                                               46, 117, class_name='Greeter')
     assert cpp_function.is_method
-    assert cpp_function.uid == f'{tmp_path}:Greeter.printHelloWorld'
+    assert cpp_function.uid == f'{tmp_path.name}::Greeter.printHelloWorld'
 
 
 def test_decompiled_function(tmp_path: Path) -> None:
@@ -135,5 +136,5 @@ def test_decompiled_function(tmp_path: Path) -> None:
 def test_extractors_config() -> None:
     extractor.set_extractors({'C': 'codablellm.languages.CExtractor'})
     assert isinstance(extractor.get_extractor('C'), CExtractor)
-    with pytest.raises(ValueError):
+    with pytest.raises(ExtractorNotFound):
         extractor.get_extractor('nonexistant')

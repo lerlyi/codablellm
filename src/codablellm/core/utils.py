@@ -1,9 +1,12 @@
 from functools import wraps
 import importlib
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Protocol, Set, Type, TypeVar, Union
+from queue import Queue
+from typing import Any, Callable, Dict, Generator, List, Optional, Protocol, Set, Type, TypeVar, Union
 
 from tree_sitter import Node, Parser, Tree
+
+from codablellm.exceptions import ExtraNotInstalled, TSParsingError
 
 PathLike = Union[Path, str]
 JSONValue = Optional[Union[str, int, float,
@@ -105,7 +108,7 @@ class ASTEditor:
                                      old_tree=self.ast)
         # Check for parsing errors if required
         if self.ensure_parsable and self.ast.root_node.has_error:
-            raise ValueError('Parsing error while editing code')
+            raise TSParsingError('Parsing error while editing code')
 
     def match_and_edit(self, query: str,
                        groups_and_replacement: Dict[str, Union[str, Callable[[Node], str]]]) -> None:
@@ -134,8 +137,16 @@ def requires_extra(extra: str, feature: str, module: str) -> Callable[[Callable[
             try:
                 importlib.import_module(module)
             except ImportError as e:
-                raise ImportError(f'{feature} requires the "{extra}" extra to be installed. '
-                                  f'Install with "pip install codablellm[{extra}]"') from e
+                raise ExtraNotInstalled(f'{feature} requires the "{extra}" extra to be installed. '
+                                        f'Install with "pip install codablellm[{extra}]"') from e
             return func(*args, **kwargs)
         return wrapper
     return decorator
+
+
+T = TypeVar('T')
+
+
+def iter_queue(queue: Queue[T]) -> Generator[T, None, None]:
+    while not queue.empty():
+        yield queue.get()

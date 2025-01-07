@@ -1,13 +1,13 @@
 from abc import ABC, abstractmethod
-from collections import deque
 from collections.abc import Mapping
 from contextlib import nullcontext
+import logging
 import os
 from pathlib import Path
 import shutil
 from tempfile import TemporaryDirectory
 from typing import (
-    Callable, Deque, Dict, Iterable, Iterator, List, Literal,
+    Callable, Dict, Iterable, Iterator, List, Literal,
     Optional, Sequence, Tuple, Union)
 
 from pandas import DataFrame
@@ -15,6 +15,8 @@ from pandas import DataFrame
 from codablellm.core import decompiler, extractor, utils
 from codablellm.core.dashboard import ProcessPoolProgress
 from codablellm.core.function import DecompiledFunction, SourceFunction, Function
+
+logger = logging.getLogger('codablellm')
 
 
 class Dataset(ABC):
@@ -95,7 +97,7 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
                 else nullcontext()
             with ctx as copied_repo_dir:
                 if copied_repo_dir:
-                    shutil.copytree(path, copied_repo_dir)
+                    shutil.copytree(path, Path(copied_repo_dir) / Path(path).name)
                     path = copied_repo_dir
                 return cls(extractor.extract(path,
                                              **utils.resolve_kwargs(max_workers=max_workers,
@@ -104,18 +106,16 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
         original_extraction_pool = extractor.extract(path, as_callable_pool=True,
                                                      **utils.resolve_kwargs(max_workers=max_workers,
                                                                             accurate_progress=accurate_progress))
-        original_extraction_results: Deque[SourceFunction] = deque()
         with TemporaryDirectory(delete=delete_temp) as copied_repo_dir:
-            shutil.copytree(path, copied_repo_dir)
+            shutil.copytree(path, Path(copied_repo_dir) / Path(path).name)
             modified_extraction_pool = extractor.extract(path, as_callable_pool=True,
                                                          **utils.resolve_kwargs(max_workers=max_workers,
                                                                                 accurate_progress=accurate_progress))
-            modified_extraction_results: Deque[SourceFunction] = deque()
-            with ProcessPoolProgress.multi_progress((original_extraction_pool,  # type: ignore
-                                                     original_extraction_results),
-                                                    (modified_extraction_pool,  # type: ignore
-                                                     modified_extraction_results)):
-                return cls(s for d in [original_extraction_results, modified_extraction_results] for s in d)
+            original_extraction_results, \
+                modified_extraction_results = ProcessPoolProgress.multi_progress(original_extraction_pool,  # type: ignore
+                                                                                 modified_extraction_pool)  # type: ignore
+            return cls(s for d in [original_extraction_results, modified_extraction_results]
+                       for s in d)
 
 
 class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, SourceCodeDataset]]):
@@ -156,16 +156,20 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
     def _from_dataset_and_decompiled(cls, source_dataset: SourceCodeDataset,
                                      decompiled_functions: Iterable[DecompiledFunction],
                                      stripped: bool) -> 'DecompiledCodeDataset':
-
-        def get_potential_key(function: Function) -> str:
-            return function.uid.rsplit(':', maxsplit=1)[1].rsplit('.', maxsplit=1)[1]
-
         potential_mappings: Dict[str, List[SourceFunction]] = {}
         for source_function in source_dataset.values():
-            potential_mappings.setdefault(get_potential_key(source_function),
+            potential_mappings.setdefault(source_function.uid,
                                           []).append(source_dataset[source_function.uid])
-        return cls([(d.to_stripped() if stripped else d, SourceCodeDataset(potential_mappings[get_potential_key(d)]))
-                    for d in decompiled_functions if get_potential_key(d) in potential_mappings])
+        mappings: List[Tuple[DecompiledFunction, SourceCodeDataset]] = []
+        for decompiled_function in decompiled_functions:
+            uid = SourceFunction.create_uid(decompiled_function.path,
+                                            decompiled_function.name)
+            if uid in mappings:
+                if stripped:
+                    decompiled_function = decompiled_function.to_stripped()
+                mappings.append((decompiled_function,
+                                SourceCodeDataset(potential_mappings[uid])))
+        return cls(mappings)
 
     @classmethod
     def from_repository(cls, path: utils.PathLike, bins: Sequence[utils.PathLike],
@@ -179,15 +183,11 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
         original_extraction_pool = extractor.extract(path, as_callable_pool=True,
                                                      **utils.resolve_kwargs(max_workers=max_extractor_workers,
                                                                             accurate_progress=accurate_progress))
-        source_functions: Deque[SourceFunction] = deque()
         decompile_pool = decompiler.decompile(bins, as_callable_pool=True,
                                               **utils.resolve_kwargs(max_workers=max_decompiler_workers))
-        decompiled_functions: Deque[DecompiledFunction] = deque()
-        with ProcessPoolProgress.multi_progress((original_extraction_pool,  # type: ignore
-                                                 source_functions),
-                                                (decompile_pool,  # type: ignore
-                                                 decompiled_functions)):
-            pass
+        source_functions, decompiled_functions = \
+            ProcessPoolProgress.multi_progress(original_extraction_pool,  # type: ignore
+                                               decompile_pool)  # type: ignore
         source_dataset = SourceCodeDataset(source_functions)
         return cls._from_dataset_and_decompiled(source_dataset, decompiled_functions, stripped)
 

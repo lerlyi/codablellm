@@ -23,4 +23,4 @@ def test_c_extraction(tmp_path: Path) -> None:
     assert function.language == 'C'
     assert function.definition.splitlines() == c_definition.splitlines()
     assert function.path == c_file
-    assert function.uid == f'{c_file}:main'
+    assert function.uid == f'{c_file.name}::main'

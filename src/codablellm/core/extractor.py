@@ -9,6 +9,7 @@ from typing import (
 from codablellm.core.dashboard import CallablePoolProgress, ProcessPoolProgress, Progress
 from codablellm.core.function import SourceFunction
 from codablellm.core.utils import PathLike
+from codablellm.exceptions import ExtractorNotFound
 
 EXTRACTORS: Final[OrderedDict[str, str]] = OrderedDict({
     'C': 'codablellm.languages.c.CExtractor'
@@ -46,7 +47,7 @@ def get_extractor(language: str, *args: Any, **kwargs: Any) -> Extractor:
         module_path, class_name = EXTRACTORS[language].rsplit('.', 1)
         module = importlib.import_module(module_path)
         return getattr(module, class_name)(*args, **kwargs)
-    raise ValueError(f'Unsupported language: {language}')
+    raise ExtractorNotFound(f'Unsupported language: {language}')
 
 
 def _extract(extractor_and_file: Tuple[Extractor, Path]) -> Sequence[SourceFunction]:

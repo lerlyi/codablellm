@@ -1,8 +1,14 @@
+import json
 from pathlib import Path
 import subprocess
-from typing import Any, List, Union
+from typing import Any, List, Sequence, Union
 from pytest import MonkeyPatch, TempPathFactory, fixture
 
+from codablellm.core import utils
+from codablellm.core import decompiler
+from codablellm.core.decompiler import Decompiler
+from codablellm.core.decompiler import _decompile
+from codablellm.core.function import DecompiledFunction, DecompiledFunctionJSONObject
 from codablellm.repoman import Command
 
 FAILING_COMMAND = 'FAILED'
@@ -24,6 +30,30 @@ def failing_command() -> Command:
     return FAILING_COMMAND
 
 
+FAILING_BIN = 'FAILED'
+
+
+class MockDecompiler(Decompiler):
+
+    def decompile(self, path: utils.PathLike) -> Sequence[DecompiledFunction]:
+        print('MockDecompiler called')
+        if path == FAILING_BIN:
+            raise subprocess.CalledProcessError(1, path)
+        path = Path(path)
+        decompiled_funcs_json: List[DecompiledFunctionJSONObject] = \
+            json.loads(path.read_text())
+        return [DecompiledFunction.from_json(func) for func in decompiled_funcs_json]
+
+
+def _decompile(path: utils.PathLike, *args: Any, **kwargs: Any) -> Sequence[DecompiledFunction]:
+    return MockDecompiler().decompile(path)
+
+
+@fixture(autouse=True)
+def mock_decompile(monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setattr(decompiler, '_decompile', _decompile)
+
+
 @fixture(scope='session')
 def c_repository(tmp_path_factory: TempPathFactory) -> Path:
 
@@ -38,3 +68,20 @@ def c_repository(tmp_path_factory: TempPathFactory) -> Path:
     create_file(path / 'file2.c', range(4, 7))
     create_file(path / 'file3.c', range(7, 9))
     return path
+
+
+@fixture(scope='session')
+def c_bin(tmp_path_factory: TempPathFactory) -> Path:
+
+    def create_file(file: Path, func_range: range) -> None:
+        file.write_text(json.dumps([DecompiledFunction(f'{file}:{f}', file,
+                                                       f'void function{f}: ' +
+                                                       '\n<decompiled_def>',
+                                                       f'function{f}',
+                                                       f'function{f}:' +
+                                                       '\n<decompiled_asm>',
+                                                       'x86_64').to_json() for f in func_range]))
+    path = tmp_path_factory.mktemp('c_bins')
+    c_bin = path / 'out.lib'
+    create_file(c_bin, range(1, 9))
+    return c_bin

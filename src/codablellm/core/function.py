@@ -1,7 +1,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import ClassVar, Dict, Final, Optional, TypedDict
+from typing import Dict, Final, Optional, TypedDict
 import uuid
 
 from tree_sitter import Node, Parser
@@ -16,6 +16,10 @@ class Function:
     uid: str
     path: Path
 
+    @staticmethod
+    def create_uid(path: Path) -> str:
+        return path.parts[-1]
+
 
 @dataclass(frozen=True)
 class SourceFunction(Function):
@@ -29,7 +33,7 @@ class SourceFunction(Function):
     def __post_init__(self) -> None:
         if self.start_byte < 0:
             raise ValueError('Start byte must be a non-negative integer')
-        if self.start_byte >= self.end_byte:
+        if self.start_byte > self.end_byte:
             raise ValueError('Start byte must be less than end byte')
 
     @property
@@ -38,31 +42,33 @@ class SourceFunction(Function):
 
     def with_definition(self, definition: str, name: Optional[str] = None,
                         write_back: bool = True) -> 'SourceFunction':
-        if not self.class_name:
-            source_function = SourceFunction(f'{self.path}:{name}' if name else self.uid,
-                                             self.path, self.language, definition,
-                                             name if name else self.name,
-                                             self.start_byte, self.start_byte + len(definition))
-        else:
-            source_function = SourceFunction(f'{self.path}:{self.class_name}.{name}' if name else self.uid,
-                                             self.path, self.language, definition,
-                                             name if name else self.name, self.start_byte,
-                                             self.start_byte + len(definition),
-                                             class_name=self.class_name)
+        if not name:
+            name = self.name
+        uid = SourceFunction.create_uid(self.path, name,
+                                        class_name=self.class_name)
+        source_function = SourceFunction(uid, self.path, self.language, definition, name,
+                                         self.start_byte, self.start_byte + len(definition))
         if write_back:
+            # TODO: swap this out with ASTEditor
             source_code = source_function.path.read_text()
             source_function.path.write_text(source_code[:self.start_byte] +
                                             source_function.definition +
                                             source_code[self.end_byte:])
         return source_function
 
+    @staticmethod
+    def create_uid(path: Path, name: str, class_name: Optional[str] = None) -> str:
+        if class_name:
+            uid = f'{Function.create_uid(path)}::{class_name}.{name}'
+        else:
+            uid = f'{Function.create_uid(path)}::{name}'
+        return uid
+
     @classmethod
     def from_source(cls, path: Path, language: str, definition: str, name: str, start_byte: int,
                     end_byte: int, class_name: Optional[str] = None) -> 'SourceFunction':
-        if not class_name:
-            return cls(f'{path}:{name}', path, language, definition, name, start_byte, end_byte)
-        return cls(f'{path}:{class_name}.{name}', path, language, definition, name, start_byte,
-                   end_byte, class_name=class_name)
+        return cls(SourceFunction.create_uid(path, name, class_name=class_name), path, language,
+                   definition, name, start_byte, end_byte, class_name=class_name)
 
 
 class DecompiledFunctionJSONObject(TypedDict):
@@ -74,6 +80,19 @@ class DecompiledFunctionJSONObject(TypedDict):
     architecture: str
 
 
+GET_C_SYMBOLS_QUERY: Final[str] = (
+    '(function_definition'
+    '    declarator: (function_declarator'
+    '        declarator: (identifier) @function.symbols'
+    '    )'
+    ')'
+    '(call_expression'
+    '    function: (identifier) @function.symbols'
+    ')'
+)
+C_PARSER: Final[Parser] = Parser(Language(tsc.language()))
+
+
 @dataclass(frozen=True)
 class DecompiledFunction(Function, SupportsJSON):
     definition: str
@@ -81,18 +100,6 @@ class DecompiledFunction(Function, SupportsJSON):
     assembly: str
     architecture: str
 
-    GET_C_SYMBOLS_QUERY: Final[ClassVar[str]] = (
-        '(function_definition'
-        '    declarator: (function_declarator'
-        '        declarator: (identifier) @function.symbols'
-        '    )'
-        ')'
-        '(call_expression'
-        '    function: (identifier) @function.symbols'
-        ')'
-    )
-    C_PARSER: Final[ClassVar[Parser]] = Parser(Language(tsc.language()))
-    
     def to_stripped(self) -> 'DecompiledFunction':
         definition = self.definition
         assembly = self.assembly
@@ -109,9 +116,9 @@ class DecompiledFunction(Function, SupportsJSON):
             assembly = assembly.replace(orig_function, stripped_symbol)
             return stripped_symbol
 
-        editor = ASTEditor(DecompiledFunction.C_PARSER, definition)
-        editor.match_and_edit(DecompiledFunction.GET_C_SYMBOLS_QUERY, {
-                                 'function.symbols': strip})
+        editor = ASTEditor(C_PARSER, definition)
+        editor.match_and_edit(GET_C_SYMBOLS_QUERY,
+                              {'function.symbols': strip})
         definition = editor.source_code
         first_function, *_ = (f for f in symbol_mapping.values()
                               if f.startswith('sub_'))

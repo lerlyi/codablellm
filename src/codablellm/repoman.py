@@ -111,7 +111,7 @@ def compile_dataset(path: utils.PathLike, bins: Sequence[utils.PathLike], build_
         if generation_mode == 'temp' or generation_mode == 'temp-append':
             modified_repo_path = modified_source_dataset.get_common_path()
             bins = [Path(b) for b in bins]
-            modified_bins = [modified_repo_path.parent / Path(*b.parts[b.parts.index(modified_repo_path.name):])
+            modified_bins = [modified_repo_path / Path(*b.parts[b.parts.index(modified_repo_path.name):])
                              for b in bins]
         else:
             modified_bins = bins

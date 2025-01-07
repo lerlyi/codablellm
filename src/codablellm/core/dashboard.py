@@ -1,10 +1,10 @@
 from abc import ABC, abstractmethod
+from queue import Queue
 import time
 import logging
 
 from collections.abc import Iterator
-from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor, wait
-from contextlib import contextmanager
+from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor
 from multiprocessing.context import BaseContext
 from rich.console import Console
 from rich.table import Table
@@ -12,12 +12,12 @@ from rich.live import Live
 from rich.progress import Progress as BaseProgress
 from rich.progress import BarColumn, GetTimeCallable, MofNCompleteColumn, ProgressColumn, \
     TextColumn, TimeElapsedColumn, TimeRemainingColumn
-from threading import Lock
 from types import TracebackType
-from typing import Any, Callable, Concatenate, Deque, Generator, Generic, Iterable, List, \
+from typing import Any, Callable, Concatenate, Generic, Iterable, List, \
     Mapping, Optional, Tuple, Type, TypeVar, Union
 
 from codablellm.core import utils
+from codablellm.exceptions import CodableLLMError
 
 logger = logging.getLogger('codablellm')
 
@@ -130,9 +130,15 @@ class ProcessPoolProgress(Iterator[R], Generic[I, R]):
             if not future.cancelled():
                 exception = future.exception()
                 if exception:
-                    logger.warning('Error occured during batch operation: '
-                                   f'{exception}')
                     self._progress.advance(errors=True)
+                    if not isinstance(exception, CodableLLMError):
+                        logger.error('Unexpected error occured during batch operation: '
+                                     f'{type(exception).__name__}: {exception}')
+                        self._process_pool_executor.shutdown(wait=False,
+                                                             cancel_futures=True)
+                    else:
+                        logger.warning('Error occured during batch operation: '
+                                       f'{type(exception).__name__}: {exception}')
                 else:
                     self._new_results.append(future.result())
                     self._progress.advance()
@@ -166,27 +172,26 @@ class ProcessPoolProgress(Iterator[R], Generic[I, R]):
         return self._progress.errors
 
     @staticmethod
-    @contextmanager
-    def multi_progress(*pools_and_results: Tuple['CallablePoolProgress[Any, Any, Any]', Deque[Any]],
-                       title: Optional[str] = None) -> Generator[Live, None, None]:
+    def multi_progress(*pools: 'CallablePoolProgress[Any, Any, Any]',
+                       title: Optional[str] = None) -> List[List[Any]]:
 
         def get_results(pool: 'CallablePoolProgress[Any, Any, Any]',
-                        results: Deque[Any]) -> None:
+                        results: Queue[Any]) -> None:
             result = pool()
             try:
-                results.extend(result)
+                for r in result:
+                    results.put(r)
             except TypeError:
-                results.append(result)
-
+                results.put(result)
+        pools_and_results = [(p, Queue()) for p in pools]
         table = Table(title=title)
         futures: List[Future[None]] = []
-        lock = Lock()
         with ThreadPoolExecutor() as executor:
             for pool, results in pools_and_results:
-                with lock:
-                    pool.pool._multi_progress = True
-                    table.add_row(pool.pool._progress)
+                pool.pool._multi_progress = True
+                table.add_row(pool.pool._progress)
                 futures.append(executor.submit(get_results, pool, results))
-            with Live(table) as live:
-                yield live
-            wait(futures)
+            with Live(table):
+                while not all(f.done() for f in futures):
+                    time.sleep(0.1)
+        return [list(utils.iter_queue(r[1])) for r in pools_and_results]
