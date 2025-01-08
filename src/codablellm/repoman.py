@@ -2,6 +2,7 @@ from contextlib import contextmanager, nullcontext
 import logging
 from pathlib import Path
 import subprocess
+from tempfile import TemporaryDirectory
 from typing import Any, Callable, Generator, Literal, Optional, Sequence, Union
 
 from codablellm.core import utils
@@ -108,18 +109,11 @@ def compile_dataset(path: utils.PathLike, bins: Sequence[utils.PathLike], build_
                                                         **utils.resolve_kwargs(max_workers=max_extractor_workers,
                                                                                accurate_progress=accurate_progress,
                                                                                ))
-        if generation_mode == 'temp' or generation_mode == 'temp-append':
-            modified_repo_path = modified_source_dataset.get_common_path()
-            bins = [Path(b) for b in bins]
-            modified_bins = [modified_repo_path / Path(*b.parts[b.parts.index(modified_repo_path.name):])
-                             for b in bins]
-        else:
-            modified_bins = bins
         with manage(build_command, **utils.resolve_kwargs(cleanup_command=cleanup_command,
                                                           ignore_build_errors=ignore_build_errors,
                                                           ignore_cleanup_errors=ignore_cleanup_errors,
                                                           show_progress=progress)):
-            modified_decompiled_dataset = DecompiledCodeDataset.from_source_code_dataset(modified_source_dataset, modified_bins,
+            modified_decompiled_dataset = DecompiledCodeDataset.from_source_code_dataset(modified_source_dataset, bins,
                                                                                          **utils.resolve_kwargs(max_workers=max_decompiler_workers,))
             if generation_mode == 'temp' or generation_mode == 'path':
                 return modified_decompiled_dataset
