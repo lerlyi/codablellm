@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from email.policy import default
 import importlib
 import logging
 from pathlib import Path
@@ -78,7 +79,7 @@ def load_checkpoint_data() -> List[SourceFunction]:
     return utils.load_checkpoint_data(EXTRACTOR_CHECKPOINT_PREFIX, delete_on_load=True)
 
 
-@dataclass
+@dataclass(frozen=True)
 class ExtractConfig:
     max_workers: Optional[int] = None
     accurate_progress: bool = True
@@ -109,15 +110,7 @@ class ExtractConfig:
 class _CallableExtractor(CallablePoolProgress[Tuple[Extractor, Path], Sequence[SourceFunction],
                                               List[SourceFunction]]):
 
-    def __init__(self, path: PathLike, *args: Any,
-                 max_workers: Optional[int],
-                 accurate_progress: bool,
-                 transform: Optional[Callable[[SourceFunction], SourceFunction]],
-                 exclusive_subpaths: Set[Path],
-                 exclude_subpaths: Set[Path],
-                 checkpoint: int,
-                 use_checkpoint: bool,
-                 **kwargs: Any) -> None:
+    def __init__(self, path: PathLike, config: ExtractConfig) -> None:
 
         def is_relative_to(parent: Path, child: Path) -> bool:
             try:
@@ -126,41 +119,43 @@ class _CallableExtractor(CallablePoolProgress[Tuple[Extractor, Path], Sequence[S
                 return False
             return True
 
-        if exclude_subpaths & exclusive_subpaths:
+        if config.exclude_subpaths & config.exclusive_subpaths:
             raise ValueError('Cannot have overlapping paths in exclude_subpaths and '
                              'exclusive_subpaths')
-        if checkpoint < 0:
+        if config.checkpoint < 0:
             raise ValueError('Checkpoint must be a non-negative integer')
-        self.checkpoint = checkpoint
-        self.use_checkpoint = use_checkpoint
+        self.checkpoint = config.checkpoint
+        self.use_checkpoint = config.use_checkpoint
         path = Path(path)
         if not all(is_relative_to(path, p)
-                   for subpaths in [exclusive_subpaths, exclude_subpaths] for p in subpaths):
+                   for subpaths in [config.exclusive_subpaths, config.exclude_subpaths] for p in subpaths):
             raise ValueError('All subpaths must be relative to the '
                              'repository.')
 
-        def generate_extractors_and_files(path: PathLike, *args, **kwargs) -> Generator[Tuple[Extractor, Path], None, None]:
+        def generate_extractors_and_files(path: PathLike, extractor_args: Dict[str, Sequence[Any]],
+                                          extractor_kwargs: Dict[str, Dict[str, Any]]) -> Generator[Tuple[Extractor, Path], None, None]:
             for language in EXTRACTORS:
-                extractor = get_extractor(language, *args, **kwargs)
+                extractor = get_extractor(language, *extractor_args.get(language, []),
+                                          **extractor_kwargs.get(language, {}))
                 for file in extractor.get_extractable_files(path):
-                    if not any(is_relative_to(p, file) for p in exclude_subpaths) \
-                            or any(is_relative_to(p, file) for p in exclusive_subpaths):
+                    if not any(is_relative_to(p, file) for p in config.exclude_subpaths) \
+                            or any(is_relative_to(p, file) for p in config.exclusive_subpaths):
                         yield extractor, file
 
-        if accurate_progress:
-            extractors_and_files = list(generate_extractors_and_files(path, *args,
-                                                                      **kwargs))
+        if config.accurate_progress:
+            extractors_and_files = list(generate_extractors_and_files(path, config.extractor_args,
+                                                                      config.extractor_kwargs))
             total = len(extractors_and_files)
             logger.info(f'Located {total} extractable source code files')
         else:
-            extractors_and_files = generate_extractors_and_files(path, *args,
-                                                                 **kwargs)
+            extractors_and_files = generate_extractors_and_files(path, config.extractor_args,
+                                                                 config.extractor_kwargs)
             total = None
         pool = ProcessPoolProgress(_extract, extractors_and_files, Progress('Extracting functions...',
                                                                             total=total),
-                                   max_workers=max_workers)
+                                   max_workers=config.max_workers)
         super().__init__(pool)
-        self.transform = transform
+        self.transform = config.transform
 
     def get_results(self) -> List[SourceFunction]:
         results: List[SourceFunction] = []
@@ -185,47 +180,19 @@ class _CallableExtractor(CallablePoolProgress[Tuple[Extractor, Path], Sequence[S
 
 
 @overload
-def extract(path: PathLike, *args: Any,
-            as_callable_pool: bool = False, max_workers: Optional[int] = None,
-            accurate_progress: bool = True,
-            transform: Optional[Callable[[SourceFunction],
-                                         SourceFunction]] = None,
-            exclude_subpaths: Iterable[PathLike] = set(),
-            exclusive_subpaths: Iterable[PathLike] = set(),
-            checkpoint: int = 10, use_checkpoint: bool = True,
-            **kwargs: Any) -> List[SourceFunction]: ...
+def extract(path: PathLike, config: ExtractConfig = ExtractConfig(),
+            as_callable_pool: bool = False) -> List[SourceFunction]: ...
 
 
 @overload
-def extract(path: PathLike, *args: Any,
-            as_callable_pool: bool = True, max_workers: Optional[int] = None,
-            accurate_progress: bool = True,
-            transform: Optional[Callable[[SourceFunction],
-                                         SourceFunction]] = None,
-            exclude_subpaths: Iterable[PathLike] = set(),
-            exclusive_subpaths: Iterable[PathLike] = set(),
-            checkpoint: int = 10, use_checkpoint: bool = True,
-            **kwargs: Any) -> _CallableExtractor: ...
+def extract(path: PathLike, config: ExtractConfig = ExtractConfig(),
+            as_callable_pool: bool = True) -> _CallableExtractor: ...
 
 
-def extract(path: PathLike, *args: Any,
-            as_callable_pool: bool = False, max_workers: Optional[int] = None,
-            accurate_progress: bool = True,
-            transform: Optional[Callable[[SourceFunction],
-                                         SourceFunction]] = None,
-            exclude_subpaths: Iterable[PathLike] = set(),
-            exclusive_subpaths: Iterable[PathLike] = set(),
-            checkpoint: int = 10, use_checkpoint: bool = True,
-            **kwargs: Any) -> Union[List[SourceFunction],
-                                    _CallableExtractor]:
-    extractor = _CallableExtractor(path, *args, max_workers=max_workers,
-                                   accurate_progress=accurate_progress, transform=transform,
-                                   exclude_subpaths={Path(p)
-                                                     for p in exclude_subpaths},
-                                   exclusive_subpaths={Path(p)
-                                                       for p in exclusive_subpaths},
-                                   checkpoint=checkpoint, use_checkpoint=use_checkpoint,
-                                   **kwargs)
+def extract(path: PathLike, config: ExtractConfig = ExtractConfig(),
+            as_callable_pool: bool = False) -> Union[List[SourceFunction],
+                                                     _CallableExtractor]:
+    extractor = _CallableExtractor(path, config)
     if as_callable_pool:
         return extractor
     return extractor()

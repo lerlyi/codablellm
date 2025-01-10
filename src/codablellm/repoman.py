@@ -1,5 +1,5 @@
 from contextlib import contextmanager, nullcontext
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 import logging
 import subprocess
 from typing import Any, Callable, Generator, Iterable, Literal, Optional, Sequence, Set, Union
@@ -8,8 +8,9 @@ from rich.prompt import Prompt
 
 from codablellm.core import utils
 from codablellm.core.dashboard import Progress
+from codablellm.core.extractor import ExtractConfig
 from codablellm.core.function import SourceFunction
-from codablellm.dataset import DecompiledCodeDataset, SourceCodeDataset
+from codablellm.dataset import DecompiledCodeDataset, DecompiledCodeDatasetConfig, SourceCodeDataset, SourceCodeDatasetConfig
 
 
 Command = Union[str, Sequence[Any]]
@@ -22,7 +23,7 @@ def add_command_args(command: Command, *args: Any) -> Command:
     return [*command, *args] if not isinstance(Command, str) else [command, *args]
 
 
-def execute_command(command: Command, error_handler: CommandErrorHandler = 'none', ignore_errors: bool = False,
+def execute_command(command: Command, error_handler: CommandErrorHandler = 'none',
                     task: Optional[str] = None, show_progress: bool = True) -> None:
     '''
     Executes a repository command.
@@ -54,25 +55,27 @@ def execute_command(command: Command, error_handler: CommandErrorHandler = 'none
                                     task=task)
                 elif result == 'abort':
                     raise
+            else:
+                raise
         else:
             logger.info(f'Successfully executed "{command}"')
 
 
-def build(command: Command, ignore_errors: Optional[bool] = None,
+def build(command: Command, error_handler: CommandErrorHandler = 'none',
           show_progress: Optional[bool] = None) -> None:
     execute_command(command, task='Building repository...',
-                    **utils.resolve_kwargs(ignore_errors=ignore_errors,
+                    **utils.resolve_kwargs(error_handler=error_handler,
                                            show_progress=show_progress))
 
 
-def cleanup(command: Command, ignore_errors: Optional[bool] = None,
+def cleanup(command: Command, error_handler: CommandErrorHandler = 'none',
             show_progress: Optional[bool] = None) -> None:
     execute_command(command, task='Cleaning up repository...',
-                    **utils.resolve_kwargs(ignore_errors=ignore_errors,
+                    **utils.resolve_kwargs(error_handler=error_handler,
                                            show_progress=show_progress))
 
 
-@dataclass
+@dataclass(frozen=True)
 class ManageConfig:
     cleanup_command: Optional[Command] = None
     build_error_handling: CommandErrorHandler = 'interactive'
@@ -81,16 +84,14 @@ class ManageConfig:
 
 
 @contextmanager
-def manage(build_command: Command, cleanup_command: Optional[Command] = None,
-           ignore_build_errors: Optional[bool] = None,
-           ignore_cleanup_errors: Optional[bool] = None,
-           show_progress: Optional[bool] = None) -> Generator[None, None, None]:
-    build(build_command, ignore_errors=ignore_build_errors,
-          show_progress=show_progress)
+def manage(build_command: Command,
+           config: ManageConfig = ManageConfig()) -> Generator[None, None, None]:
+    build(build_command, error_handler=config.build_error_handling,
+          show_progress=config.show_progress)
     yield
-    if cleanup_command:
-        cleanup(cleanup_command, ignore_errors=ignore_cleanup_errors,
-                show_progress=show_progress)
+    if config.cleanup_command:
+        cleanup(config.cleanup_command, error_handler=config.cleanup_error_handling,
+                show_progress=config.show_progress)
 
 
 create_source_dataset = SourceCodeDataset.from_repository
@@ -98,66 +99,40 @@ create_decompiled_dataset = DecompiledCodeDataset.from_repository
 
 
 def compile_dataset(path: utils.PathLike, bins: Sequence[utils.PathLike], build_command: Command,
-                    max_extractor_workers: Optional[int] = None,
-                    max_decompiler_workers: Optional[int] = None,
-                    transform: Optional[Callable[[SourceFunction],
-                                                 SourceFunction]] = None,
-                    generation_mode: Optional[Literal['path',
-                                                      'temp',
-                                                      'temp-append']] = None,
-                    cleanup_command: Optional[Command] = None,
-                    ignore_build_errors: Optional[bool] = None,
-                    ignore_cleanup_errors: Optional[bool] = None,
-                    progress: Optional[Literal['accurate',
-                                               'lazy']] = None,
+                    manage_config: ManageConfig = ManageConfig(),
+                    extract_config: ExtractConfig = ExtractConfig(),
+                    dataset_config: DecompiledCodeDatasetConfig = DecompiledCodeDatasetConfig(),
+                    generation_mode: Literal['path',
+                                             'temp', 'temp-append'] = 'temp',
                     repo_arg_with: Optional[Literal['build',
-                                                    'cleanup', 'both']] = None,
-                    exclude_subpaths: Optional[Iterable[utils.PathLike]] = None,
-                    exclusive_subpaths: Optional[Iterable[utils.PathLike]] = None,
-                    checkpoint: Optional[int] = None,
-                    use_checkpoint: Optional[bool] = None) -> DecompiledCodeDataset:
+                                                    'cleanup', 'both']] = None
+                    ) -> DecompiledCodeDataset:
     if repo_arg_with == 'build' or repo_arg_with == 'both':
         build_command = add_command_args(build_command, path)
-    if cleanup_command and (repo_arg_with == 'cleanup' or repo_arg_with == 'both'):
-        cleanup_command = add_command_args(cleanup_command, path)
-    if progress:
-        accurate_progress = progress == 'accurate'
+    if manage_config.cleanup_command and (repo_arg_with == 'cleanup' or repo_arg_with == 'both'):
+        cleanup_command = add_command_args(manage_config.cleanup_command, path)
     else:
-        accurate_progress = None
-    if transform:
+        cleanup_command = manage_config.cleanup_command
+    if extract_config.transform:
         modified_source_dataset = create_source_dataset(path,
-                                                        generation_mode='path' if generation_mode == 'path' else 'temp',
-                                                        transform=transform,
-                                                        delete_temp=False,
-                                                        **utils.resolve_kwargs(max_workers=max_extractor_workers,
-                                                                               accurate_progress=accurate_progress,
-                                                                               exclude_subpaths=exclude_subpaths,
-                                                                               exclusive_subpaths=exclusive_subpaths,
-                                                                               checkpoint=checkpoint,
-                                                                               use_checkpoint=use_checkpoint
-                                                                               ))
-        with manage(build_command, **utils.resolve_kwargs(cleanup_command=cleanup_command,
-                                                          ignore_build_errors=ignore_build_errors,
-                                                          ignore_cleanup_errors=ignore_cleanup_errors,
-                                                          show_progress=progress)):
+                                                        config=SourceCodeDatasetConfig(
+                                                            generation_mode='path' if generation_mode == 'path' else 'temp',
+                                                            delete_temp=False,
+                                                            extract_config=extract_config
+                                                        ))
+        manage_config_dict = asdict(manage_config)
+        manage_config_dict['cleanup_command'] = cleanup_command
+        with manage(build_command, config=ManageConfig(**manage_config_dict)):
             modified_decompiled_dataset = DecompiledCodeDataset.from_source_code_dataset(modified_source_dataset, bins,
-                                                                                         **utils.resolve_kwargs(max_workers=max_decompiler_workers,))
+                                                                                         config=dataset_config)
             if generation_mode == 'temp' or generation_mode == 'path':
                 return modified_decompiled_dataset
             return DecompiledCodeDataset.concat(modified_decompiled_dataset, compile_dataset(path, bins, build_command,
-                                                                                             max_extractor_workers=max_extractor_workers,
-                                                                                             max_decompiler_workers=max_decompiler_workers,
-                                                                                             cleanup_command=cleanup_command,
-                                                                                             ignore_build_errors=ignore_build_errors,
-                                                                                             ignore_cleanup_errors=ignore_cleanup_errors,
-                                                                                             progress=progress,
+                                                                                             manage_config=manage_config,
+                                                                                             extract_config=extract_config,
+                                                                                             dataset_config=dataset_config,
                                                                                              repo_arg_with=repo_arg_with))
     else:
-        with manage(build_command, **utils.resolve_kwargs(cleanup_command=cleanup_command,
-                                                          ignore_build_errors=ignore_build_errors,
-                                                          ignore_cleanup_errors=ignore_cleanup_errors,
-                                                          show_progress=progress)):
-            return create_decompiled_dataset(path, bins, **utils.resolve_kwargs(max_extractor_workers=max_extractor_workers,
-                                                                                max_decompiler_workers=max_decompiler_workers,
-                                                                                accurate_progress=accurate_progress,
-                                                                                ))
+        with manage(build_command, config=manage_config):
+            return create_decompiled_dataset(path, bins, extract_config=extract_config,
+                                             dataset_config=dataset_config)

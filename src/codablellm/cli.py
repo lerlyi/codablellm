@@ -6,11 +6,14 @@ import logging
 
 from click import BadParameter
 from rich import print
+from rich.prompt import Confirm
 from typer import Argument, Exit, Option, prompt, Typer
 from typing import Callable, Dict, Final, List, Optional, Tuple
 
 import codablellm
 from codablellm.core import downloader
+from codablellm.core.decompiler import DecompileConfig
+from codablellm.core.extractor import ExtractConfig
 from codablellm.core.function import SourceFunction
 from codablellm.dataset import DecompiledCodeDatasetConfig, SourceCodeDatasetConfig
 from codablellm.decompilers.ghidra import Ghidra
@@ -44,7 +47,7 @@ class CommandErrorHandler(str, Enum):
 # Default configurations
 
 DEFAULT_SOURCE_CODE_DATASET_CONFIG: Final[SourceCodeDatasetConfig] = \
-    SourceCodeDatasetConfig()
+    SourceCodeDatasetConfig(log_generation_warning=False)
 DEFAULT_DECOMPILED_CODE_DATASET_CONFIG: Final[DecompiledCodeDatasetConfig] = \
     DecompiledCodeDatasetConfig()
 DEFAULT_MANAGE_CONFIG: Final[ManageConfig] = ManageConfig()
@@ -153,13 +156,16 @@ GHIDRA: Final[Optional[Path]] = Option(Ghidra.get_path(), envvar=Ghidra.ENVIRON_
                                        help="Path to Ghidra's analyzeHeadless command.")
 GIT: Final[bool] = Option(False, '--git / --archive', help='Determines whether --url is a Git '
                           'download URL or a tarball/zipfile download URL.')
-IGNORE_BUILD_ERRORS: Final[bool] = Option(False, '--ignore-build-errors',
-                                          help='Does not exit if the build command specified with '
-                                          '--build exits with a non-successful status.')
-IGNORE_CLEANUP_ERRORS: Final[bool] = Option(False, '--ignore-cleanup-errors',
-                                            help='Does not exit if the cleanup command specified '
-                                            'with --cleanup exits with a non-successful status '
-                                            '(dataset will still be saved).')
+BUILD_ERROR_HANDLING: Final[CommandErrorHandler] = Option(DEFAULT_MANAGE_CONFIG.build_error_handling,
+                                                          help='Specifies how to handle errors that occur '
+                                                          'during the cleanup process. Options include '
+                                                          'ignoring the error, raising an exception, or '
+                                                          'prompting the user for manual intervention.')
+CLEANUP_ERROR_HANDLING: Final[CommandErrorHandler] = Option(DEFAULT_MANAGE_CONFIG.cleanup_error_handling,
+                                                            help='Specifies how to handle errors that occur '
+                                                            'during the cleanup process. Options include '
+                                                            'ignoring the error, raising an exception, or '
+                                                            'prompting the user for manual intervention.')
 MAX_DECOMPILER_WORKERS: Final[Optional[int]] = Option(DEFAULT_DECOMPILED_CODE_DATASET_CONFIG.decompiler_config.max_workers,
                                                       min=1,
                                                       help='Maximum number of workers to use to '
@@ -207,7 +213,9 @@ URL: Final[str] = Option('', help='Download a remote repository and save at the 
 @app.command()
 def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path]] = BINS,
             accurate: bool = ACCURATE, build: Optional[str] = BUILD,
+            build_error_handling: CommandErrorHandler = BUILD_ERROR_HANDLING,
             cleanup: Optional[str] = CLEANUP,
+            cleanup_error_handling: CommandErrorHandler = CLEANUP_ERROR_HANDLING,
             checkpoint: int = CHECKPOINT,
             debug: bool = DEBUG, decompile: bool = DECOMPILE,
             decompiler: str = DECOMPILER,
@@ -217,12 +225,11 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
                                        Path]] = EXTRACTORS,
             generation_mode: GenerationMode = GENERATION_MODE,
             git: bool = GIT, ghidra: Optional[Path] = GHIDRA,
-            ignore_build_errors: bool = IGNORE_BUILD_ERRORS,
-            ignore_cleanup_errors: bool = IGNORE_CLEANUP_ERRORS,
             max_decompiler_workers: Optional[int] = MAX_DECOMPILER_WORKERS,
             max_extractor_workers: Optional[int] = MAX_EXTRACTOR_WORKERS,
             repo_build_arg: bool = REPO_BUILD_ARG,
             repo_cleanup_arg: bool = REPO_CLEANUP_ARG,
+            strip: bool = STRIP,
             transform: Optional[Callable[[SourceFunction],
                                          SourceFunction]] = TRANSFORM,
             use_checkpoint: Optional[bool] = USE_CHECKPOINT,
@@ -253,16 +260,42 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
             downloader.clone(url, repo)
         else:
             downloader.decompress(url, repo)
+    # Create the extractor configuration
+    if use_checkpoint is None:
+        if any(codablellm.extractor.get_checkpoint_files()):
+            use_checkpoint = Confirm.ask(
+                'Extraction checkpoint files detected. Would you like to resume from the most '
+                'recent checkpoint?',
+                case_sensitive=False
+            )
+        else:
+            use_checkpoint = False
+    extract_config = ExtractConfig(
+        max_workers=max_extractor_workers,
+        accurate_progress=accurate,
+        transform=transform,
+        exclusive_subpaths=set(
+            exclusive_subpath) if exclusive_subpath else set(),
+        exclude_subpaths=set(exclude_subpath) if exclude_subpath else set(),
+        checkpoint=checkpoint,
+        use_checkpoint=use_checkpoint
+    )
     # Create source code/decompiled code dataset
     if decompile:
         if not bins or not any(bins):
             raise BadParameter('Must specify at least one binary for decompiled code datasets.',
                                param_hint='bins')
+        dataset_config = DecompiledCodeDatasetConfig(
+            extract_config=extract_config,
+            strip=strip,
+            decompiler_config=DecompileConfig(
+                max_workers=max_decompiler_workers
+            )
+        )
         if not build:
             dataset = codablellm.create_decompiled_dataset(repo, bins,
-                                                           max_decompiler_workers=max_decompiler_workers,
-                                                           max_extractor_workers=max_extractor_workers,
-                                                           accurate_progress=accurate)
+                                                           extract_config=extract_config,
+                                                           dataset_config=dataset_config)
         else:
             if repo_build_arg or repo_cleanup_arg:
                 if repo_build_arg and repo_cleanup_arg:
@@ -271,36 +304,22 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
                     repo_arg_with = 'build' if repo_build_arg else 'cleanup'
             else:
                 repo_arg_with = None
-            if use_checkpoint is None and any(codablellm.extractor.get_checkpoint_files()):
-                use_checkpoint = prompt('Extraction checkpoint files detected. Would you like '
-                                        'to resume from the most recent checkpoint?')
-            dataset = codablellm.compile_dataset(repo, bins, build, max_decompiler_workers=max_decompiler_workers,
-                                                 max_extractor_workers=max_extractor_workers,
-                                                 progress='accurate' if accurate else 'lazy',
-                                                 transform=transform,
-                                                 generation_mode=str(
-                                                     generation_mode),  # type: ignore
-                                                 cleanup_command=cleanup,
-                                                 ignore_build_errors=ignore_build_errors,
-                                                 ignore_cleanup_errors=ignore_cleanup_errors,
-                                                 repo_arg_with=repo_arg_with,
-                                                 exclude_subpaths=exclude_subpath,
-                                                 exclusive_subpaths=exclusive_subpath,
-                                                 checkpoint=checkpoint,
-                                                 use_checkpoint=use_checkpoint)
+            manage_config = ManageConfig(
+                cleanup_command=cleanup,
+                build_error_handling=build_error_handling,  # type: ignore
+                cleanup_error_handling=cleanup_error_handling)  # type: ignore
+            dataset = codablellm.compile_dataset(repo, bins, build,
+                                                 manage_config=manage_config,
+                                                 extract_config=extract_config,
+                                                 dataset_config=dataset_config,
+                                                 generation_mode=generation_mode,  # type: ignore
+                                                 repo_arg_with=repo_arg_with
+                                                 )
     else:
-        if use_checkpoint is None and any(codablellm.extractor.get_checkpoint_files()):
-            use_checkpoint = prompt('Extraction checkpoint files detected. Would you like '
-                                    'to resume from the most recent checkpoint?')
-        dataset = codablellm.create_source_dataset(repo,
-                                                   generation_mode=str(
-                                                       generation_mode),  # type: ignore
-                                                   accurate_progress=accurate,
-                                                   max_workers=max_extractor_workers,
-                                                   transform=transform,
-                                                   exclude_subpaths=exclude_subpath,
-                                                   exclusive_subpaths=exclusive_subpath,
-                                                   checkpoint=checkpoint,
-                                                   use_checkpoint=use_checkpoint)
+        dataset_config = SourceCodeDatasetConfig(
+            generation_mode=str(generation_mode),  # type: ignore
+            extract_config=extract_config
+        )
+        dataset = codablellm.create_source_dataset(repo, config=dataset_config)
     # Save dataset
     dataset.save_as(save_as)

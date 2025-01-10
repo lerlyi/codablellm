@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from codablellm.core.extractor import ExtractConfig
 from codablellm.dataset import *
 
 
@@ -18,7 +19,7 @@ def test_save_dataset(tmp_path: Path) -> None:
 
 def test_source_dataset(c_repository: Path) -> None:
     dataset = SourceCodeDataset.from_repository(c_repository,
-                                                generation_mode='path')
+                                                SourceCodeDatasetConfig(generation_mode='path'))
     temp_dataset = SourceCodeDataset.from_repository(c_repository)
     assert len(dataset) == 8
     assert len(temp_dataset) == 8
@@ -29,7 +30,13 @@ def test_source_dataset(c_repository: Path) -> None:
 
 def test_modified_source_dataset(c_repository: Path) -> None:
     dataset = SourceCodeDataset.from_repository(c_repository,
-                                                transform=lambda s: s.with_definition(''))
+                                                SourceCodeDatasetConfig(
+                                                    extract_config=ExtractConfig(
+                                                        transform=lambda s: s.with_definition(
+                                                            '')
+                                                    )
+                                                )
+                                                )
     assert len(dataset) == 8
 
 

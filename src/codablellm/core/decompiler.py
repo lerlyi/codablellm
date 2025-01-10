@@ -43,7 +43,7 @@ def _decompile(path: PathLike, *args: Any, **kwargs: Any) -> Sequence[Decompiled
     return get_decompiler(*args, **kwargs).decompile(path)
 
 
-@dataclass
+@dataclass(frozen=True)
 class DecompileConfig:
     max_workers: Optional[int] = None
     decompiler_args: Sequence[Any] = field(default_factory=list)
@@ -58,8 +58,7 @@ class _CallableDecompiler(CallablePoolProgress[PathLike, Sequence[DecompiledFunc
                                                List[DecompiledFunction]]):
 
     def __init__(self, paths: Union[PathLike, Sequence[PathLike]],
-                 max_workers: Optional[int],
-                 *args: Any, **kwargs: Any) -> None:
+                 config: DecompileConfig) -> None:
         bins: List[Path] = []
         if isinstance(paths, (Path, str)):
             paths = [paths]
@@ -68,7 +67,9 @@ class _CallableDecompiler(CallablePoolProgress[PathLike, Sequence[DecompiledFunc
             bins.extend([b for b in path.glob('*') if is_binary(b)]
                         if path.is_dir() else [path])
         pool = ProcessPoolProgress(_decompile, paths, Progress('Decompiling binaries...', total=len(paths)),
-                                   max_workers=max_workers, submit_args=args, submit_kwargs=kwargs)
+                                   max_workers=config.max_workers,
+                                   submit_args=tuple(config.decompiler_args),
+                                   submit_kwargs=config.decompiler_kwargs)
         super().__init__(pool)
 
     def get_results(self) -> List[DecompiledFunction]:
@@ -77,20 +78,20 @@ class _CallableDecompiler(CallablePoolProgress[PathLike, Sequence[DecompiledFunc
 
 @overload
 def decompile(paths: Union[PathLike, Sequence[PathLike]],
-              as_callable_pool: bool = False, max_workers: Optional[int] = None,
-              *args: Any, **kwargs: Any) -> List[DecompiledFunction]: ...
+              config: DecompileConfig = DecompileConfig(),
+              as_callable_pool: bool = False) -> List[DecompiledFunction]: ...
 
 
 @overload
 def decompile(paths: Union[PathLike, Sequence[PathLike]],
-              as_callable_pool: bool = True, max_workers: Optional[int] = None,
-              *args: Any, **kwargs: Any) -> _CallableDecompiler: ...
+              config: DecompileConfig = DecompileConfig(),
+              as_callable_pool: bool = True) -> _CallableDecompiler: ...
 
 
 def decompile(paths: Union[PathLike, Sequence[PathLike]],
-              as_callable_pool: bool = False, max_workers: Optional[int] = None,
-              *args: Any, **kwargs: Any) -> Union[List[DecompiledFunction], _CallableDecompiler]:
-    decompiler = _CallableDecompiler(paths, max_workers, *args, **kwargs)
+              config: DecompileConfig = DecompileConfig(),
+              as_callable_pool: bool = False) -> Union[List[DecompiledFunction], _CallableDecompiler]:
+    decompiler = _CallableDecompiler(paths, config)
     if as_callable_pool:
         return decompiler
     return decompiler()
