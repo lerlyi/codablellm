@@ -1,7 +1,8 @@
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import logging
 from pathlib import Path
-from typing import Dict, Final, Optional, TypedDict
+from typing import Any, Dict, Final, Optional, TypedDict
 import uuid
 
 from tree_sitter import Node, Parser
@@ -9,6 +10,8 @@ from tree_sitter import Language, Parser
 import tree_sitter_c as tsc
 
 from codablellm.core.utils import ASTEditor, SupportsJSON
+
+logger = logging.getLogger('codablellm')
 
 
 @dataclass(frozen=True)
@@ -21,14 +24,27 @@ class Function:
         return path.parts[-1]
 
 
+class SourceFunctionJSONObject(TypedDict):
+    uid: str
+    path: str
+    language: str
+    definition: str
+    name: str
+    start_byte: int
+    end_byte: int
+    class_name: Optional[str]
+    metadata: Dict[str, Any]
+
+
 @dataclass(frozen=True)
-class SourceFunction(Function):
+class SourceFunction(Function, SupportsJSON):
     language: str
     definition: str
     name: str
     start_byte: int
     end_byte: int
     class_name: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.start_byte < 0:
@@ -41,20 +57,36 @@ class SourceFunction(Function):
         return self.class_name is not None
 
     def with_definition(self, definition: str, name: Optional[str] = None,
-                        write_back: bool = True) -> 'SourceFunction':
+                        write_back: bool = True, **metadata: Any) -> 'SourceFunction':
         if not name:
             name = self.name
         uid = SourceFunction.create_uid(self.path, name,
                                         class_name=self.class_name)
         source_function = SourceFunction(uid, self.path, self.language, definition, name,
-                                         self.start_byte, self.start_byte + len(definition))
+                                         self.start_byte,
+                                         self.start_byte + len(definition),
+                                         metadata=metadata)
         if write_back:
+            logger.debug('Writing back modified definition to '
+                         f'{source_function.path.name}...')
             # TODO: swap this out with ASTEditor
             source_code = source_function.path.read_text()
             source_function.path.write_text(source_code[:self.start_byte] +
                                             source_function.definition +
                                             source_code[self.end_byte:])
         return source_function
+
+    def to_json(self) -> SourceFunctionJSONObject:
+        return {'uid': self.uid, 'path': str(self.path), 'language': self.language,
+                'definition': self.definition, 'name': self.name, 'start_byte': self.start_byte,
+                'end_byte': self.end_byte, 'class_name': self.class_name,
+                'metadata': self.metadata}
+
+    @classmethod
+    def from_json(cls, json_obj: SourceFunctionJSONObject) -> 'SourceFunction':
+        return cls(json_obj['uid'], Path(json_obj['path']), json_obj['language'],
+                   json_obj['definition'], json_obj['name'], json_obj['start_byte'],
+                   json_obj['end_byte'], json_obj['class_name'], json_obj['metadata'])
 
     @staticmethod
     def create_uid(path: Path, name: str, class_name: Optional[str] = None) -> str:
@@ -66,9 +98,10 @@ class SourceFunction(Function):
 
     @classmethod
     def from_source(cls, path: Path, language: str, definition: str, name: str, start_byte: int,
-                    end_byte: int, class_name: Optional[str] = None) -> 'SourceFunction':
+                    end_byte: int, class_name: Optional[str] = None, **metadata: Any) -> 'SourceFunction':
         return cls(SourceFunction.create_uid(path, name, class_name=class_name), path, language,
-                   definition, name, start_byte, end_byte, class_name=class_name)
+                   definition, name, start_byte, end_byte, class_name=class_name,
+                   metadata=metadata)
 
 
 class DecompiledFunctionJSONObject(TypedDict):
@@ -117,6 +150,7 @@ class DecompiledFunction(Function, SupportsJSON):
             return stripped_symbol
 
         editor = ASTEditor(C_PARSER, definition)
+        logger.debug(f'Stripping {self.name}...')
         editor.match_and_edit(GET_C_SYMBOLS_QUERY,
                               {'function.symbols': strip})
         definition = editor.source_code

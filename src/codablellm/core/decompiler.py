@@ -1,28 +1,29 @@
-import importlib
-
 from abc import ABC, abstractmethod
-from codablellm.core.function import DecompiledFunction
-from codablellm.core.utils import PathLike, is_binary
+from dataclasses import dataclass, field
+import importlib
+import logging
 from pathlib import Path
-from typing import Any, Final, Iterable, List, Optional, TypedDict, Sequence, Union, overload
+from typing import Any, Dict, Final, List, Optional, TypedDict, Sequence, Union, overload
 
 from codablellm.core.dashboard import CallablePoolProgress, ProcessPoolProgress, Progress
+from codablellm.core.function import DecompiledFunction
+from codablellm.core.utils import PathLike, is_binary
+
+logger = logging.getLogger('codablellm')
 
 
 class NamedDecompiler(TypedDict):
-    name: str
     class_path: str
 
 
 DECOMPILER: Final[NamedDecompiler] = {
-    'name': 'Ghidra',
     'class_path': 'codablellm.decompilers.ghidra.Ghidra'
 }
 
 
-def set_decompiler(name: str, class_path: str) -> None:
-    DECOMPILER['name'] = name
+def set_decompiler(class_path: str) -> None:
     DECOMPILER['class_path'] = class_path
+    logger.info(f'Using "{class_path}" as the decompiler')
 
 
 class Decompiler(ABC):
@@ -40,6 +41,17 @@ def get_decompiler(*args: Any, **kwargs: Any) -> Decompiler:
 
 def _decompile(path: PathLike, *args: Any, **kwargs: Any) -> Sequence[DecompiledFunction]:
     return get_decompiler(*args, **kwargs).decompile(path)
+
+
+@dataclass
+class DecompileConfig:
+    max_workers: Optional[int] = None
+    decompiler_args: Sequence[Any] = field(default_factory=list)
+    decompiler_kwargs: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.max_workers and self.max_workers < 1:
+            raise ValueError('Max workers must be a positive integer')
 
 
 class _CallableDecompiler(CallablePoolProgress[PathLike, Sequence[DecompiledFunction],

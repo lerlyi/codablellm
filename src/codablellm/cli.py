@@ -1,18 +1,20 @@
+from enum import Enum
 import importlib
 import json
+from pathlib import Path
 import logging
 
 from click import BadParameter
-from enum import Enum
-from pathlib import Path
 from rich import print
-from typer import Argument, Exit, Option, Typer
+from typer import Argument, Exit, Option, prompt, Typer
 from typing import Callable, Dict, Final, List, Optional, Tuple
 
 import codablellm
 from codablellm.core import downloader
 from codablellm.core.function import SourceFunction
+from codablellm.dataset import DecompiledCodeDatasetConfig, SourceCodeDatasetConfig
 from codablellm.decompilers.ghidra import Ghidra
+from codablellm.repoman import ManageConfig
 
 logger = logging.getLogger('codablellm')
 
@@ -31,6 +33,21 @@ class GenerationMode(str, Enum):
     PATH = 'path'
     TEMP = 'temp'
     TEMP_APPEND = 'temp-append'
+
+
+class CommandErrorHandler(str, Enum):
+    INTERACTIVE = 'interactive'
+    IGNORE = 'ignore'
+    NONE = 'none'
+
+
+# Default configurations
+
+DEFAULT_SOURCE_CODE_DATASET_CONFIG: Final[SourceCodeDatasetConfig] = \
+    SourceCodeDatasetConfig()
+DEFAULT_DECOMPILED_CODE_DATASET_CONFIG: Final[DecompiledCodeDatasetConfig] = \
+    DecompiledCodeDatasetConfig()
+DEFAULT_MANAGE_CONFIG: Final[ManageConfig] = ManageConfig()
 
 # Argument/option validation callbacks
 
@@ -86,7 +103,8 @@ BINS: Final[Optional[List[Path]]] = Argument(None, metavar='[PATH]...', show_def
                                              "repository's compiled binaries.")
 
 # Options
-ACCURATE: Final[bool] = Option(True, '--accurate / --lazy',
+ACCURATE: Final[bool] = Option(DEFAULT_SOURCE_CODE_DATASET_CONFIG.extract_config.accurate_progress,
+                               '--accurate / --lazy',
                                help='Displays estimated time remaining and detailed '
                                'progress reporting of source function extraction '
                                'if --accurate is enabled, at a cost of more '
@@ -95,7 +113,12 @@ ACCURATE: Final[bool] = Option(True, '--accurate / --lazy',
 BUILD: Final[Optional[str]] = Option(None, '--build', '-b', metavar='COMMAND',
                                      help='If --decompile is specified, the repository will be '
                                      'built using the value of this option as the build command.')
-CLEANUP: Final[Optional[str]] = Option(None, '--cleanup', '-c', metavar='COMMAND',
+CHECKPOINT: Final[int] = Option(DEFAULT_SOURCE_CODE_DATASET_CONFIG.extract_config.checkpoint,
+                                min=0,
+                                help='Number of extraction entries after which a backup dataset '
+                                'file will be saved in case of a crash.')
+CLEANUP: Final[Optional[str]] = Option(DEFAULT_MANAGE_CONFIG.cleanup_command,
+                                       '--cleanup', '-c', metavar='COMMAND',
                                        help='If --decompile is specified, the repository will be '
                                        'cleaned up after the dataset is created, using the value of '
                                        'this option as the build command.')
@@ -103,26 +126,26 @@ DECOMPILE: Final[bool] = Option(False, '--decompile / --source', '-d / -s',
                                 help='If the language supports decompiled code mapping, use '
                                 '--decompiler to decompile the binaries specified by the bins '
                                 'argument and add decompiled code to the dataset.')
-DECOMPILER: Final[Optional[Tuple[str, str]]] = Option((codablellm.decompiler.DECOMPILER['name'],
-                                                       codablellm.decompiler.DECOMPILER['class_path']
-                                                       ),
-                                                      help='Decompiler to use.',
-                                                      metavar='<TEXT CLASSPATH>')
+DECOMPILER: Final[str] = Option(codablellm.decompiler.DECOMPILER['class_path'],
+                                help='Decompiler to use.',
+                                metavar='CLASSPATH')
 DEBUG: Final[bool] = Option(False, '--debug', callback=toggle_debug_logging,
                             hidden=True)
-EXCLUDE_SUBPATH: Final[Optional[List[Path]]] = Option(None,
+EXCLUDE_SUBPATH: Final[Optional[List[Path]]] = Option(list(DEFAULT_SOURCE_CODE_DATASET_CONFIG.extract_config.exclude_subpaths),
+                                                      '--exclude-subpath', '-e',
                                                       help='Path relative to the repository '
                                                       'directory to exclude from the dataset '
                                                       'generation.')
-EXCLUSIVE_SUBPATH: Final[Optional[List[Path]]] = Option(None,
+EXCLUSIVE_SUBPATH: Final[Optional[List[Path]]] = Option(list(DEFAULT_SOURCE_CODE_DATASET_CONFIG.extract_config.exclusive_subpaths),
+                                                        '--exclusive-subpath', '-E',
                                                         help='Path relative to the repository '
                                                         'directory to exclusively include in the dataset '
                                                         'generation.')
-EXTRACTORS_ARG: Final[Optional[Tuple[ExtractorConfigOperation, Path]]] = Option(None, dir_okay=False, exists=True,
-                                                                                metavar='<[prepend|append|set] FILE>',
-                                                                                help='Order of extractors '
-                                                                                'to use, including custom ones.')
-GENERATION_MODE: Final[GenerationMode] = Option('temp',
+EXTRACTORS: Final[Optional[Tuple[ExtractorConfigOperation, Path]]] = Option(None, dir_okay=False, exists=True,
+                                                                            metavar='<[prepend|append|set] FILE>',
+                                                                            help='Order of extractors '
+                                                                            'to use, including custom ones.')
+GENERATION_MODE: Final[GenerationMode] = Option(DEFAULT_SOURCE_CODE_DATASET_CONFIG.generation_mode,
                                                 help='Specify how the dataset should be '
                                                 'generated from the repository.')
 GHIDRA: Final[Optional[Path]] = Option(Ghidra.get_path(), envvar=Ghidra.ENVIRON_KEY, dir_okay=False,
@@ -137,10 +160,12 @@ IGNORE_CLEANUP_ERRORS: Final[bool] = Option(False, '--ignore-cleanup-errors',
                                             help='Does not exit if the cleanup command specified '
                                             'with --cleanup exits with a non-successful status '
                                             '(dataset will still be saved).')
-MAX_DECOMPILER_WORKERS: Final[Optional[int]] = Option(None, min=1,
+MAX_DECOMPILER_WORKERS: Final[Optional[int]] = Option(DEFAULT_DECOMPILED_CODE_DATASET_CONFIG.decompiler_config.max_workers,
+                                                      min=1,
                                                       help='Maximum number of workers to use to '
                                                       'decompile binaries in parallel.')
-MAX_EXTRACTOR_WORKERS: Final[Optional[int]] = Option(None, min=1,
+MAX_EXTRACTOR_WORKERS: Final[Optional[int]] = Option(DEFAULT_SOURCE_CODE_DATASET_CONFIG.extract_config.max_workers,
+                                                     min=1,
                                                      help='Maximum number of workers to use to '
                                                      'extract source code functions in parallel.')
 VERBOSE: Final[bool] = Option(False, '--verbose', '-v',
@@ -149,7 +174,8 @@ VERBOSE: Final[bool] = Option(False, '--verbose', '-v',
 VERSION: Final[bool] = Option(False, '--version', is_eager=True, callback=show_version,
                               help='Shows the installed version of codablellm and exit.')
 TRANSFORM: Final[Optional[Callable[[SourceFunction],
-                                   SourceFunction]]] = Option(None, '--transform', '-t',
+                                   SourceFunction]]] = Option(DEFAULT_SOURCE_CODE_DATASET_CONFIG.extract_config.transform,
+                                                              '--transform', '-t',
                                                               metavar='CALLABLEPATH',
                                                               help='Transformation function to use '
                                                               'when extracting source code '
@@ -167,6 +193,13 @@ REPO_CLEANUP_ARG: Final[bool] = Option(False, '--repo-cleanup-arg', '-C',
                                        'specified with --cleanup. This may be useful '
                                        'when --generation-mode temp or '
                                        '--generation-mode temp-append is specified.')
+STRIP: Final[bool] = Option(DEFAULT_DECOMPILED_CODE_DATASET_CONFIG.strip,
+                            help='If a decompiled dataset is being created, strip the symbols '
+                            'after decompiling')
+USE_CHECKPOINT: Final[Optional[bool]] = Option(None, '--use-checkpoint / --ignore-checkpoint',
+                                               show_default=False,
+                                               help='Enable the use of an extraction checkpoint '
+                                               'to resume from a previously saved state.')
 URL: Final[str] = Option('', help='Download a remote repository and save at the local path '
                          'specified by the REPO argument.')
 
@@ -175,12 +208,13 @@ URL: Final[str] = Option('', help='Download a remote repository and save at the 
 def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path]] = BINS,
             accurate: bool = ACCURATE, build: Optional[str] = BUILD,
             cleanup: Optional[str] = CLEANUP,
+            checkpoint: int = CHECKPOINT,
             debug: bool = DEBUG, decompile: bool = DECOMPILE,
-            decompiler: Optional[Tuple[str, str]] = DECOMPILER,
+            decompiler: str = DECOMPILER,
             exclude_subpath: Optional[List[Path]] = EXCLUDE_SUBPATH,
             exclusive_subpath: Optional[List[Path]] = EXCLUSIVE_SUBPATH,
             extractors: Optional[Tuple[ExtractorConfigOperation,
-                                       Path]] = EXTRACTORS_ARG,
+                                       Path]] = EXTRACTORS,
             generation_mode: GenerationMode = GENERATION_MODE,
             git: bool = GIT, ghidra: Optional[Path] = GHIDRA,
             ignore_build_errors: bool = IGNORE_BUILD_ERRORS,
@@ -191,11 +225,10 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
             repo_cleanup_arg: bool = REPO_CLEANUP_ARG,
             transform: Optional[Callable[[SourceFunction],
                                          SourceFunction]] = TRANSFORM,
+            use_checkpoint: Optional[bool] = USE_CHECKPOINT,
             url: str = URL, verbose: bool = VERBOSE, version: bool = VERSION) -> None:
-    if decompiler:
-        # Configure decompiler
-        name, class_path = decompiler
-        codablellm.decompiler.set_decompiler(name, class_path)
+    # Configure decompiler
+    codablellm.decompiler.set_decompiler(decompiler)
     if extractors:
         # Configure function extractors
         operation, config_file = extractors
@@ -238,6 +271,9 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
                     repo_arg_with = 'build' if repo_build_arg else 'cleanup'
             else:
                 repo_arg_with = None
+            if use_checkpoint is None and any(codablellm.extractor.get_checkpoint_files()):
+                use_checkpoint = prompt('Extraction checkpoint files detected. Would you like '
+                                        'to resume from the most recent checkpoint?')
             dataset = codablellm.compile_dataset(repo, bins, build, max_decompiler_workers=max_decompiler_workers,
                                                  max_extractor_workers=max_extractor_workers,
                                                  progress='accurate' if accurate else 'lazy',
@@ -247,13 +283,24 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
                                                  cleanup_command=cleanup,
                                                  ignore_build_errors=ignore_build_errors,
                                                  ignore_cleanup_errors=ignore_cleanup_errors,
-                                                 repo_arg_with=repo_arg_with)
+                                                 repo_arg_with=repo_arg_with,
+                                                 exclude_subpaths=exclude_subpath,
+                                                 exclusive_subpaths=exclusive_subpath,
+                                                 checkpoint=checkpoint,
+                                                 use_checkpoint=use_checkpoint)
     else:
+        if use_checkpoint is None and any(codablellm.extractor.get_checkpoint_files()):
+            use_checkpoint = prompt('Extraction checkpoint files detected. Would you like '
+                                    'to resume from the most recent checkpoint?')
         dataset = codablellm.create_source_dataset(repo,
                                                    generation_mode=str(
                                                        generation_mode),  # type: ignore
                                                    accurate_progress=accurate,
                                                    max_workers=max_extractor_workers,
-                                                   transform=transform)
+                                                   transform=transform,
+                                                   exclude_subpaths=exclude_subpath,
+                                                   exclusive_subpaths=exclusive_subpath,
+                                                   checkpoint=checkpoint,
+                                                   use_checkpoint=use_checkpoint)
     # Save dataset
     dataset.save_as(save_as)

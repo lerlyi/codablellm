@@ -1,20 +1,20 @@
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from contextlib import nullcontext
+from dataclasses import dataclass
 import logging
 import os
 from pathlib import Path
 import shutil
 from tempfile import TemporaryDirectory
-from typing import (
-    Callable, Dict, Iterable, Iterator, List, Literal,
-    Optional, Sequence, Tuple, Union)
+from typing import (Callable, Dict, Iterable, Iterator, List, Literal,
+                    Optional, Sequence, Tuple, Union)
 
 from pandas import DataFrame
 
 from codablellm.core import decompiler, extractor, utils
 from codablellm.core.dashboard import ProcessPoolProgress
-from codablellm.core.function import DecompiledFunction, SourceFunction, Function
+from codablellm.core.function import DecompiledFunction, SourceFunction
 
 logger = logging.getLogger('codablellm')
 
@@ -57,6 +57,22 @@ class Dataset(ABC):
             to_xml(self.to_df(), path)
         else:
             raise ValueError(f'Unsupported file extension: {path.suffix}')
+        logger.info(f'Successfully saved {path.name}')
+
+
+@dataclass
+class SourceCodeDatasetConfig:
+    generation_mode: Literal['path', 'temp', 'temp-append'] = 'temp'
+    delete_temp: bool = True
+    extract_config = extractor.ExtractConfig()
+
+    def __post_init__(self) -> None:
+        if (self.generation_mode == 'temp' or self.generation_mode == 'temp-append') and \
+                not self.extract_config.transform:
+            logger.warning(f'Generation mode was specified as "{self.generation_mode}", but no '
+                           'transform was provided. Changing generation mode to "path" to '
+                           'save resources')
+            self.generation_mode = 'path'
 
 
 class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
@@ -91,31 +107,55 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
                                                      SourceFunction]] = None,
                         generation_mode: Literal['path',
                                                  'temp', 'temp-append'] = 'temp',
-                        delete_temp: bool = True) -> 'SourceCodeDataset':
+                        delete_temp: bool = True,
+                        exclude_subpaths: Optional[Iterable[utils.PathLike]] = None,
+                        exclusive_subpaths: Optional[Iterable[utils.PathLike]] = None,
+                        checkpoint: Optional[int] = None,
+                        use_checkpoint: Optional[bool] = None) -> 'SourceCodeDataset':
         if not transform or generation_mode != 'temp-append':
             ctx = TemporaryDirectory(delete=delete_temp) if generation_mode == 'temp' and transform \
                 else nullcontext()
             with ctx as copied_repo_dir:
                 if copied_repo_dir:
-                    shutil.copytree(path, Path(copied_repo_dir) / Path(path).name)
+                    shutil.copytree(path, Path(
+                        copied_repo_dir) / Path(path).name)
                     path = copied_repo_dir
                 return cls(extractor.extract(path,
                                              **utils.resolve_kwargs(max_workers=max_workers,
                                                                     accurate_progress=accurate_progress,
-                                                                    transform=transform)))
+                                                                    transform=transform,
+                                                                    exclude_subpaths=exclude_subpaths,
+                                                                    exclusive_subpaths=exclusive_subpaths,
+                                                                    checkpoint=checkpoint,
+                                                                    use_checkpoint=use_checkpoint)))
         original_extraction_pool = extractor.extract(path, as_callable_pool=True,
                                                      **utils.resolve_kwargs(max_workers=max_workers,
-                                                                            accurate_progress=accurate_progress))
+                                                                            accurate_progress=accurate_progress,
+                                                                            exclude_subpaths=exclude_subpaths,
+                                                                            exclusive_subpaths=exclusive_subpaths,
+                                                                            checkpoint=checkpoint,
+                                                                            use_checkpoint=use_checkpoint))
         with TemporaryDirectory(delete=delete_temp) as copied_repo_dir:
             shutil.copytree(path, Path(copied_repo_dir) / Path(path).name)
             modified_extraction_pool = extractor.extract(path, as_callable_pool=True,
                                                          **utils.resolve_kwargs(max_workers=max_workers,
-                                                                                accurate_progress=accurate_progress))
+                                                                                accurate_progress=accurate_progress,
+                                                                                exclude_subpaths=exclude_subpaths,
+                                                                                exclusive_subpaths=exclusive_subpaths,
+                                                                                checkpoint=checkpoint,
+                                                                                use_checkpoint=use_checkpoint))
             original_extraction_results, \
                 modified_extraction_results = ProcessPoolProgress.multi_progress(original_extraction_pool,  # type: ignore
                                                                                  modified_extraction_pool)  # type: ignore
             return cls(s for d in [original_extraction_results, modified_extraction_results]
                        for s in d)
+
+
+@dataclass
+class DecompiledCodeDatasetConfig:
+    extract_config = extractor.ExtractConfig()
+    decompiler_config = decompiler.DecompileConfig()
+    strip: bool = False
 
 
 class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, SourceCodeDataset]]):
@@ -176,13 +216,21 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
                         max_extractor_workers: Optional[int] = None,
                         max_decompiler_workers: Optional[int] = None,
                         accurate_progress: Optional[bool] = None,
+                        exclude_subpaths: Optional[Iterable[utils.PathLike]] = None,
+                        exclusive_subpaths: Optional[Iterable[utils.PathLike]] = None,
+                        checkpoint: Optional[int] = None,
+                        use_checkpoint: Optional[bool] = None,
                         stripped: bool = False) -> 'DecompiledCodeDataset':
         if not any(bins):
             raise ValueError('Must at least specify one binary')
         # Extract source code functions and decompile binaries in parallel
         original_extraction_pool = extractor.extract(path, as_callable_pool=True,
                                                      **utils.resolve_kwargs(max_workers=max_extractor_workers,
-                                                                            accurate_progress=accurate_progress))
+                                                                            accurate_progress=accurate_progress,
+                                                                            exclude_subpaths=exclude_subpaths,
+                                                                            exclusive_subpaths=exclusive_subpaths,
+                                                                            checkpoint=checkpoint,
+                                                                            use_checkpoint=use_checkpoint))
         decompile_pool = decompiler.decompile(bins, as_callable_pool=True,
                                               **utils.resolve_kwargs(max_workers=max_decompiler_workers))
         source_functions, decompiled_functions = \

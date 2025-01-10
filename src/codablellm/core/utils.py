@@ -1,12 +1,19 @@
 from functools import wraps
 import importlib
+import json
+import logging
+import os
 from pathlib import Path
 from queue import Queue
-from typing import Any, Callable, Dict, Generator, List, Optional, Protocol, Set, Type, TypeVar, Union
+import tempfile
+from typing import (Any, Callable, Dict, Generator, Iterable, List, Optional, Protocol, Set,
+                    Type, TypeVar, Union)
 
-from tree_sitter import Node, Parser, Tree
+from tree_sitter import Node, Parser
 
 from codablellm.exceptions import ExtraNotInstalled, TSParsingError
+
+logger = logging.getLogger('codablellm')
 
 PathLike = Union[Path, str]
 JSONValue = Optional[Union[str, int, float,
@@ -150,3 +157,28 @@ T = TypeVar('T')
 def iter_queue(queue: Queue[T]) -> Generator[T, None, None]:
     while not queue.empty():
         yield queue.get()
+
+
+def get_checkpoint_file(prefix: str) -> Path:
+    return Path(tempfile.gettempdir()) / f'{prefix}_{os.getpid()}.json'
+
+
+def get_checkpoint_files(prefix: str) -> List[Path]:
+    return list(Path(tempfile.gettempdir()).glob(f'{prefix}_*'))
+
+
+def save_checkpoint_file(prefix: str, contents: Iterable[SupportsJSON]) -> None:
+    checkpoint_file = get_checkpoint_file(prefix)
+    checkpoint_file.write_text(json.dumps([c.to_json() for c in contents]))
+
+
+def load_checkpoint_data(prefix: str, delete_on_load: bool = False) -> List[SupportsJSON_T]:
+    checkpoint_data: List[SupportsJSON_T] = []
+    checkpoint_files = get_checkpoint_files(prefix)
+    for checkpoint_file in checkpoint_files:
+        logger.debug(f'Loading checkpoint data from "{checkpoint_file.name}"')
+        checkpoint_data.extend(json.loads(checkpoint_file.read_text()))
+        if delete_on_load:
+            logger.debug(f'Removing checkpoint file "{checkpoint_file.name}"')
+            checkpoint_file.unlink(missing_ok=True)
+    return checkpoint_data

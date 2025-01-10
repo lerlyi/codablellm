@@ -1,20 +1,20 @@
 from abc import ABC, abstractmethod
-from queue import Queue
-import time
-import logging
-
 from collections.abc import Iterator
 from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor
+import logging
 from multiprocessing.context import BaseContext
+from queue import Queue
+import time
+from types import TracebackType
+from typing import (Any, Callable, Concatenate, Generic, Iterable, List,
+                    Mapping, Optional, Tuple, Type, TypeVar, Union)
+
 from rich.console import Console
 from rich.table import Table
 from rich.live import Live
 from rich.progress import Progress as BaseProgress
-from rich.progress import BarColumn, GetTimeCallable, MofNCompleteColumn, ProgressColumn, \
-    TextColumn, TimeElapsedColumn, TimeRemainingColumn
-from types import TracebackType
-from typing import Any, Callable, Concatenate, Generic, Iterable, List, \
-    Mapping, Optional, Tuple, Type, TypeVar, Union
+from rich.progress import (BarColumn, GetTimeCallable, MofNCompleteColumn, ProgressColumn,
+                           TextColumn, TimeElapsedColumn, TimeRemainingColumn)
 
 from codablellm.core import utils
 from codablellm.exceptions import CodableLLMError

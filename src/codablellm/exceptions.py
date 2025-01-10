@@ -1,12 +1,22 @@
 class CodableLLMError(Exception):
-    pass
+    '''
+    Base exception class for all CodableLLM errors.
+    '''
 
 
 class ExtractorNotFound(CodableLLMError):
-    pass
+    '''
+    A source code extractor could not be imported.
+    '''
+
 
 class TSParsingError(CodableLLMError):
-    pass
+    '''
+    A tree-sitter parsing error occurred.
+    '''
+
 
 class ExtraNotInstalled(CodableLLMError):
-    pass
+    '''
+    An extra is not installed to perform an optional feature.
+    '''
