@@ -173,7 +173,7 @@ class ProcessPoolProgress(Iterator[R], Generic[I, R]):
 
     @staticmethod
     def multi_progress(*pools: 'CallablePoolProgress[Any, Any, Any]',
-                       title: Optional[str] = None) -> List[List[Any]]:
+                       title: Optional[str] = None) -> Tuple[List[Any], ...]:
 
         def get_results(pool: 'CallablePoolProgress[Any, Any, Any]',
                         results: Queue[Any]) -> None:
@@ -194,4 +194,4 @@ class ProcessPoolProgress(Iterator[R], Generic[I, R]):
             with Live(table):
                 while not all(f.done() for f in futures):
                     time.sleep(0.1)
-        return [list(utils.iter_queue(r[1])) for r in pools_and_results]
+        return tuple(list(utils.iter_queue(r[1])) for r in pools_and_results)

@@ -76,6 +76,9 @@ class SourceFunction(Function, SupportsJSON):
                                             source_code[self.end_byte:])
         return source_function
 
+    def with_metadata(self, **metadata: Any) -> 'SourceFunction':
+        return self.with_definition(self.definition, write_back=False, **metadata)
+
     def to_json(self) -> SourceFunctionJSONObject:
         return {'uid': self.uid, 'path': str(self.path), 'language': self.language,
                 'definition': self.definition, 'name': self.name, 'start_byte': self.start_byte,

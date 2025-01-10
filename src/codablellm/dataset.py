@@ -1,19 +1,19 @@
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from contextlib import nullcontext
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 import logging
 import os
 from pathlib import Path
 import shutil
 from tempfile import TemporaryDirectory
-from typing import (Callable, Dict, Iterable, Iterator, List, Literal,
-                    Optional, Sequence, Tuple, Union)
+from typing import (Dict, Iterable, Iterator, List, Literal,
+                    Sequence, Tuple, Union, overload)
 
 from pandas import DataFrame
 
 from codablellm.core import decompiler, extractor, utils
-from codablellm.core.dashboard import ProcessPoolProgress
+from codablellm.core.dashboard import ProcessPoolProgress, Progress
 from codablellm.core.function import DecompiledFunction, SourceFunction
 
 logger = logging.getLogger('codablellm')
@@ -103,29 +103,74 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
     def get_common_path(self) -> Path:
         return Path(os.path.commonpath(f.path for f in self.values()))
 
+    @overload
     @classmethod
     def from_repository(cls, path: utils.PathLike,
-                        config: SourceCodeDatasetConfig = SourceCodeDatasetConfig(log_generation_warning=False)) -> 'SourceCodeDataset':
-        if not config.extract_config.transform or config.generation_mode != 'temp-append':
-            ctx = TemporaryDirectory(delete=config.delete_temp) if config.generation_mode == 'temp' and config.extract_config.transform \
+                        config: SourceCodeDatasetConfig = SourceCodeDatasetConfig(
+                            log_generation_warning=False),
+                        as_callable_pool: bool = False) -> 'SourceCodeDataset': ...
+
+    @overload
+    @classmethod
+    def from_repository(cls, path: utils.PathLike,
+                        config: SourceCodeDatasetConfig = SourceCodeDatasetConfig(
+                            log_generation_warning=False),
+                        as_callable_pool: bool = True) -> extractor._CallableExtractor: ...
+
+    @classmethod
+    def from_repository(cls, path: utils.PathLike,
+                        config: SourceCodeDatasetConfig = SourceCodeDatasetConfig(
+                            log_generation_warning=False),
+                        as_callable_pool: bool = False,) -> Union['SourceCodeDataset',
+                                                                  extractor._CallableExtractor]:
+        if config.generation_mode != 'temp-append':
+            ctx = TemporaryDirectory(delete=config.delete_temp) if config.generation_mode == 'temp' \
                 else nullcontext()
-            with ctx as copied_repo_dir:
-                if copied_repo_dir:
-                    shutil.copytree(path, Path(
-                        copied_repo_dir) / Path(path).name)
+            with ctx as temp_dir:
+                if temp_dir:
+                    copied_repo_dir = Path(temp_dir) / Path(path).name
+                    shutil.copytree(path, copied_repo_dir)
                     path = copied_repo_dir
-                return cls(extractor.extract(path, config=config.extract_config))
-        original_extraction_pool = extractor.extract(path, as_callable_pool=True,
-                                                     config=config.extract_config)
-        with TemporaryDirectory(delete=config.delete_temp) as copied_repo_dir:
-            shutil.copytree(path, Path(copied_repo_dir) / Path(path).name)
-            modified_extraction_pool = extractor.extract(path, as_callable_pool=True,
-                                                         config=config.extract_config)
-            original_extraction_results, \
-                modified_extraction_results = ProcessPoolProgress.multi_progress(original_extraction_pool,  # type: ignore
-                                                                                 modified_extraction_pool)  # type: ignore
-            return cls(s for d in [original_extraction_results, modified_extraction_results]
-                       for s in d)
+                extraction_pool: extractor._CallableExtractor = extractor.extract(path, as_callable_pool=True,
+                                                                                  config=config.extract_config)  # type: ignore
+                if as_callable_pool:
+                    return extraction_pool
+                return cls(s for s in extraction_pool())
+        temp_config = SourceCodeDatasetConfig(
+            generation_mode='temp',
+            delete_temp=False,
+            extract_config=config.extract_config
+        )
+        transformed_extraction_pool = cls.from_repository(path,
+                                                          config=temp_config,
+                                                          as_callable_pool=True)
+        path_config = SourceCodeDatasetConfig(
+            generation_mode='path',
+            extract_config=config.extract_config
+        )
+        original_extraction_pool = cls.from_repository(path,
+                                                       config=path_config,
+                                                       as_callable_pool=True)
+        original_functions, transformed_functions = \
+            ProcessPoolProgress.multi_progress(original_extraction_pool,  # type: ignore
+                                               transformed_extraction_pool)  # type: ignore
+        original_dataset = cls(s for s in original_functions)
+        transformed_dataset = cls(s for s in transformed_functions)
+        final_functions: List[SourceFunction] = []
+        with Progress('Annotating transformed functions...', total=len(transformed_functions)) as progress:
+            for transformed_function in transformed_dataset.values():
+                source_function = \
+                    original_dataset.get(transformed_function)  # type: ignore
+                if source_function:
+                    final_functions.append(source_function.with_metadata(transformed_definition=transformed_function.definition,
+                                                                         transformed_class_name=transformed_function.class_name,
+                                                                         **source_function.metadata))
+                    progress.advance()
+                else:
+                    logger.error(f'Could not locate UID "{transformed_function.uid}" in original '
+                                 'source code dataset')
+                    progress.advance(errors=True)
+        return cls(s for s in final_functions)
 
 
 @dataclass(frozen=True)

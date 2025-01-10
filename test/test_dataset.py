@@ -38,6 +38,16 @@ def test_modified_source_dataset(c_repository: Path) -> None:
                                                 )
                                                 )
     assert len(dataset) == 8
+    dataset = SourceCodeDataset.from_repository(c_repository,
+                                                SourceCodeDatasetConfig(
+                                                    generation_mode='temp-append',
+                                                    extract_config=ExtractConfig(
+                                                        transform=lambda s: s.with_definition(
+                                                            '')
+                                                    )
+                                                )
+                                                )
+    assert len(dataset) == 8
 
 
 def test_decompiled_dataset(c_repository: Path, c_bin: Path) -> None:
