@@ -1,3 +1,5 @@
+import time
+import threading
 from functools import wraps
 import importlib
 import json
@@ -6,9 +8,10 @@ import os
 from pathlib import Path
 from queue import Queue
 import tempfile
-from typing import (Any, Callable, Dict, Generator, Iterable, List, Optional, Protocol, Set,
+from typing import (Any, Callable, Concatenate, Dict, Generator, Iterable, List, Optional, Protocol, Set,
                     Type, TypeVar, Union)
 
+import tiktoken
 from tree_sitter import Node, Parser
 
 from codablellm.exceptions import ExtraNotInstalled, TSParsingError
@@ -182,3 +185,78 @@ def load_checkpoint_data(prefix: str, delete_on_load: bool = False) -> List[Supp
             logger.debug(f'Removing checkpoint file "{checkpoint_file.name}"')
             checkpoint_file.unlink(missing_ok=True)
     return checkpoint_data
+
+
+def count_openai_tokens(prompt: str, model: str = "gpt-4") -> int:
+    # Load the appropriate tokenizer for the model
+    tokenizer = tiktoken.encoding_for_model(model)
+    # Tokenize the prompt and count the tokens
+    tokens = tokenizer.encode(prompt)
+    return len(tokens)
+
+
+PromptCallable = Callable[Concatenate[str, ...], T]
+
+
+def rate_limiter(max_rpm: int, max_tpm: int, model: str = "gpt-4") -> Callable[[PromptCallable[T]],
+                                                                               Callable[..., T]]:
+    lock = threading.Lock()
+    last_call_time: List[float] = [0]
+    tokens_used_in_current_minute = [0]
+
+    def decorator(func: PromptCallable[T]) -> Callable[..., T]:
+        @wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> T:
+            # Extract the prompt from kwargs
+            try:
+                prompt, *_ = args
+                if not isinstance(prompt, str):
+                    raise TypeError('Expected first argument to be a string')
+            except (ValueError, TypeError) as e:
+                raise TypeError('Function decorated with rate_limiter must have a string '
+                                'as its first argument') from e
+
+            # Count tokens using tiktoken
+            tokens_used = count_openai_tokens(prompt, model=model)
+            logger.debug(f'Counted {tokens_used} tokens for model {model}')
+
+            with lock:
+                # Time since last call
+                current_time = time.time()
+                elapsed_time = current_time - last_call_time[0]
+                formatted_time = time.strftime(
+                    "%Y-%m-%d %H:%M:%S", time.localtime(current_time))
+                logger.debug(f"Current time: {formatted_time}, Elapsed time since last call: "
+                             f"{elapsed_time:.2f} seconds")
+
+                # Rate limit enforcement
+                min_interval = 60 / max_rpm
+                sleep_time_by_rate = max(0, min_interval - elapsed_time)
+
+                if tokens_used_in_current_minute[0] + tokens_used > max_tpm:
+                    sleep_time_by_tokens = max(0, 60 - elapsed_time)
+                    logger.warning("Token limit reached. "
+                                   "Sleeping to respect TPM limit.")
+                else:
+                    sleep_time_by_tokens = 0
+
+                sleep_time = max(sleep_time_by_rate, sleep_time_by_tokens)
+
+                if sleep_time > 0:
+                    logger.debug(f"Sleeping for {sleep_time:.2f} seconds to respect rate "
+                                 "limits...")
+                    time.sleep(sleep_time)
+
+                # Update token usage and last call time
+                tokens_used_in_current_minute[0] += tokens_used
+                last_call_time[0] = time.time()
+
+                if elapsed_time >= 60:
+                    logger.debug("Resetting token usage for the new minute.")
+                    tokens_used_in_current_minute[0] = tokens_used
+
+                # Call the original function
+                return func(*args, **kwargs)
+
+        return wrapper
+    return decorator

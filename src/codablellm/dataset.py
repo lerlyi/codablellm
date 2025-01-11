@@ -170,7 +170,7 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
                     logger.error(f'Could not locate UID "{transformed_function.uid}" in original '
                                  'source code dataset')
                     progress.advance(errors=True)
-        return cls(s for s in final_functions)
+            return cls(s for s in final_functions)
 
 
 @dataclass(frozen=True)
@@ -225,15 +225,18 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
             potential_mappings.setdefault(source_function.uid,
                                           []).append(source_dataset[source_function.uid])
         mappings: List[Tuple[DecompiledFunction, SourceCodeDataset]] = []
-        for decompiled_function in decompiled_functions:
-            uid = SourceFunction.create_uid(decompiled_function.path,
-                                            decompiled_function.name)
-            if uid in mappings:
-                if stripped:
-                    decompiled_function = decompiled_function.to_stripped()
-                mappings.append((decompiled_function,
-                                SourceCodeDataset(potential_mappings[uid])))
-        return cls(mappings)
+        with Progress('Mapping functions...'):
+            for decompiled_function in decompiled_functions:
+                uid = SourceFunction.create_uid(decompiled_function.path,
+                                                decompiled_function.name)
+                if uid in mappings:
+                    if stripped:
+                        decompiled_function = decompiled_function.to_stripped()
+                    mappings.append((decompiled_function,
+                                    SourceCodeDataset(potential_mappings[uid])))
+            logger.info(f'Successfully mapped {len(mappings)} decompiled '
+                        'functions')
+            return cls(mappings)
 
     @classmethod
     def from_repository(cls, path: utils.PathLike, bins: Sequence[utils.PathLike],

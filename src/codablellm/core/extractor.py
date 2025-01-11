@@ -1,18 +1,17 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from email.policy import default
 import importlib
 import logging
 from pathlib import Path
 from typing import (
-    Any, Callable, Dict, Final, Generator, Iterable, List, Literal, Mapping, Optional, OrderedDict, Sequence, Set,
+    Any, Callable, Dict, Final, Generator, List, Literal, Mapping, Optional, OrderedDict, Sequence, Set,
     Tuple, Union, overload)
 
 from codablellm.core import utils
 from codablellm.core.dashboard import CallablePoolProgress, ProcessPoolProgress, Progress
 from codablellm.core.function import SourceFunction
 from codablellm.core.utils import PathLike
-from codablellm.exceptions import CodableLLMError, ExtractorNotFound
+from codablellm.exceptions import ExtractorNotFound
 
 EXTRACTORS: Final[OrderedDict[str, str]] = OrderedDict({
     'C': 'codablellm.languages.c.CExtractor'
@@ -158,9 +157,9 @@ class _CallableExtractor(CallablePoolProgress[Tuple[Extractor, Path], Sequence[S
         self.transform = config.transform
 
     def get_results(self) -> List[SourceFunction]:
-        results: List[SourceFunction] = []
+        results: Dict[str, SourceFunction] = {}
         if self.use_checkpoint:
-            results = load_checkpoint_data()
+            results = {f.uid: f for f in load_checkpoint_data()}
             if results:
                 logger.info(f'Loaded {len(results)} checkpoint results')
         for functions in self.pool:
@@ -172,11 +171,15 @@ class _CallableExtractor(CallablePoolProgress[Tuple[Extractor, Path], Sequence[S
                         logger.warning('Error occured during transformation: '
                                        f'{type(e).__name__}: {e}')
                         continue
-                results.append(function)
+                if function.uid in results:
+                    logger.warning(f'Function "{function.uid}" was already extracted. Ignoring'
+                                   'duplicate entry')
+                else:
+                    results[function.uid] = function
                 if self.checkpoint > 0 and len(results) % self.checkpoint == 0:
-                    save_checkpoint_file(results)
+                    save_checkpoint_file(list(results.values()))
                     logger.info('Extraction checkpoint saved')
-        return results
+        return list(results.values())
 
 
 @overload
