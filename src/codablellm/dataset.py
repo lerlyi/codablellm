@@ -238,7 +238,7 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
             decompiled_function_dict.update(
                 source_functions_dict)  # type: ignore
             function_dicts.append(decompiled_function_dict)
-        return DataFrame(function_dicts).set_index('uid')
+        return DataFrame(function_dicts).set_index('decompiled_uid')
 
     def lookup(self, key: Union[str, SourceFunction]) -> List[Tuple[DecompiledFunction, SourceCodeDataset]]:
         return [m for m in self.values() if key in m[1]]
