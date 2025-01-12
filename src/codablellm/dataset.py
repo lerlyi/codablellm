@@ -104,7 +104,12 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
             function_dict = dict(function_json)
             function_dict.update(function_json['metadata'])
             function_dicts.append(function_dict)
-        return DataFrame(function_dicts).set_index('uid')
+        try:
+            return DataFrame(function_dicts).set_index('uid')
+        except KeyError:
+            logger.debug('Could not set DataFrame index to "uid", returning an empty '
+                         'DataFrame to assume that the DataFrame is empty')
+            return DataFrame()
 
     def get_common_path(self) -> Path:
         return Path(os.path.commonpath(f.path for f in self.values()))
@@ -238,7 +243,12 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
             decompiled_function_dict.update(
                 source_functions_dict)  # type: ignore
             function_dicts.append(decompiled_function_dict)
-        return DataFrame(function_dicts).set_index('decompiled_uid')
+        try:
+            return DataFrame(function_dicts).set_index('decompiled_uid')
+        except KeyError:
+            logger.debug('Could not set DataFrame index to "uid", returning an empty '
+                         'DataFrame to assume that the DataFrame is empty')
+            return DataFrame()
 
     def lookup(self, key: Union[str, SourceFunction]) -> List[Tuple[DecompiledFunction, SourceCodeDataset]]:
         return [m for m in self.values() if key in m[1]]
