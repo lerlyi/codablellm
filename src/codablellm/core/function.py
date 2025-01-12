@@ -52,6 +52,8 @@ class SourceFunction(Function, SupportsJSON):
         if self.start_byte > self.end_byte:
             raise ValueError('Start byte must be less than end byte')
         if self.metadata.keys() & asdict(self).keys():
+            v1 = self.metadata.values()
+            v2 = asdict(self).keys()
             raise KeyError(f'Cannot set metadata to existing field')
 
     @property
@@ -59,9 +61,12 @@ class SourceFunction(Function, SupportsJSON):
         return self.class_name is not None
 
     def with_definition(self, definition: str, name: Optional[str] = None,
-                        write_back: bool = True, **metadata: Any) -> 'SourceFunction':
+                        write_back: bool = True,
+                        metadata: Optional[Dict[str, Any]] = None) -> 'SourceFunction':
         if not name:
             name = self.name
+        if not metadata:
+            metadata = self.metadata
         uid = SourceFunction.create_uid(self.path, name,
                                         class_name=self.class_name)
         source_function = SourceFunction(uid, self.path, self.language, definition, name,
@@ -78,8 +83,8 @@ class SourceFunction(Function, SupportsJSON):
                                             source_code[self.end_byte:])
         return source_function
 
-    def with_metadata(self, **metadata: Any) -> 'SourceFunction':
-        return self.with_definition(self.definition, write_back=False, **metadata)
+    def with_metadata(self, metadata: Dict[str, Any]) -> 'SourceFunction':
+        return self.with_definition(self.definition, write_back=False, metadata=metadata)
 
     def to_json(self) -> SourceFunctionJSONObject:
         return {'uid': self.uid, 'path': str(self.path), 'language': self.language,

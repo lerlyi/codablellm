@@ -102,6 +102,7 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
         for function in self.values():
             function_json = function.to_json()
             function_dict = dict(function_json)
+            del function_dict['metadata']
             function_dict.update(function_json['metadata'])
             function_dicts.append(function_dict)
         try:
@@ -173,9 +174,10 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
                 source_function = \
                     original_dataset.get(transformed_function)  # type: ignore
                 if source_function:
-                    final_functions.append(source_function.with_metadata(transformed_definition=transformed_function.definition,
-                                                                         transformed_class_name=transformed_function.class_name,
-                                                                         **source_function.metadata))
+                    final_functions.append(source_function.with_metadata({'transformed_definition': transformed_function.definition,
+                                                                         'transformed_class_name': transformed_function.class_name,
+                                                                          **source_function.metadata
+                                                                          }))
                     progress.advance()
                 else:
                     logger.error(f'Could not locate UID "{transformed_function.uid}" in original '
