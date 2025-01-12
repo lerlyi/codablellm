@@ -1,5 +1,5 @@
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 import logging
 from pathlib import Path
 from typing import Any, Dict, Final, Optional, TypedDict
@@ -51,6 +51,8 @@ class SourceFunction(Function, SupportsJSON):
             raise ValueError('Start byte must be a non-negative integer')
         if self.start_byte > self.end_byte:
             raise ValueError('Start byte must be less than end byte')
+        if self.metadata.keys() & asdict(self).keys():
+            raise KeyError(f'Cannot set metadata to existing field')
 
     @property
     def is_method(self) -> bool:
