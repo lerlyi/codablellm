@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import shutil
 from tempfile import TemporaryDirectory
-from typing import (Dict, Iterable, Iterator, List, Literal,
+from typing import (Any, Dict, Iterable, Iterator, List, Literal,
                     Sequence, Tuple, Union, overload)
 
 from pandas import DataFrame
@@ -98,7 +98,13 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
         return len(self._mapping)
 
     def to_df(self) -> DataFrame:
-        return DataFrame.from_dict(self._mapping)
+        function_dicts: List[Dict[str, Any]] = []
+        for function in self.values():
+            function_json = function.to_json()
+            function_dict = dict(function_json)
+            function_dict.update(function_json['metadata'])
+            function_dicts.append(function_dict)
+        return DataFrame(function_dicts).set_index('uid')
 
     def get_common_path(self) -> Path:
         return Path(os.path.commonpath(f.path for f in self.values()))
@@ -205,7 +211,34 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
         return len(self._mapping)
 
     def to_df(self) -> DataFrame:
-        return DataFrame.from_dict(self._mapping)
+        function_dicts: List[Dict[str, Any]] = []
+        for decompiled_function, source_functions in self.values():
+            decompiled_function_json = decompiled_function.to_json()
+            decompiled_function_dict = dict(decompiled_function_json)
+            decompiled_function_dict['decompiled_uid'] = \
+                decompiled_function_dict.pop('uid')
+            decompiled_function_dict['bin'] = \
+                decompiled_function_dict.pop('path')
+            decompiled_function_dict['decompiled_definition'] = \
+                decompiled_function_dict.pop('definition')
+            source_functions_dict = source_functions.to_df().to_dict()
+            source_functions_dict['source_uids'] = \
+                source_functions_dict.pop('uid')
+            source_functions_dict['source_files'] = \
+                source_functions_dict.pop('path')
+            source_functions_dict['source_definitions'] = \
+                source_functions_dict.pop('definition')
+            del source_functions_dict['name']
+            source_functions_dict['source_file_start_bytes'] = \
+                source_functions_dict.pop('start_byte')
+            source_functions_dict['source_file_end_bytes'] = \
+                source_functions_dict.pop('end_byte')
+            source_functions_dict['class_names'] = \
+                source_functions_dict.pop('class_name')
+            decompiled_function_dict.update(
+                source_functions_dict)  # type: ignore
+            function_dicts.append(decompiled_function_dict)
+        return DataFrame(function_dicts).set_index('uid')
 
     def lookup(self, key: Union[str, SourceFunction]) -> List[Tuple[DecompiledFunction, SourceCodeDataset]]:
         return [m for m in self.values() if key in m[1]]

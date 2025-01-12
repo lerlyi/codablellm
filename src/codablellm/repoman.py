@@ -2,6 +2,7 @@ from contextlib import contextmanager, nullcontext
 from dataclasses import asdict, dataclass
 import logging
 import subprocess
+from tempfile import NamedTemporaryFile
 from typing import Any, Callable, Generator, Iterable, Literal, Optional, Sequence, Set, Union
 
 from rich.prompt import Prompt
@@ -120,18 +121,26 @@ def compile_dataset(path: utils.PathLike, bins: Sequence[utils.PathLike], build_
                                                             delete_temp=False,
                                                             extract_config=extract_config
                                                         ))
-        manage_config_dict = asdict(manage_config)
-        manage_config_dict['cleanup_command'] = cleanup_command
-        with manage(build_command, config=ManageConfig(**manage_config_dict)):
-            modified_decompiled_dataset = DecompiledCodeDataset.from_source_code_dataset(modified_source_dataset, bins,
-                                                                                         config=dataset_config)
-            if generation_mode == 'temp' or generation_mode == 'path':
-                return modified_decompiled_dataset
-            return DecompiledCodeDataset.concat(modified_decompiled_dataset, compile_dataset(path, bins, build_command,
-                                                                                             manage_config=manage_config,
-                                                                                             extract_config=extract_config,
-                                                                                             dataset_config=dataset_config,
-                                                                                             repo_arg_with=repo_arg_with))
+        with NamedTemporaryFile('w+', prefix='modified_source_dataset',
+                                suffix='.csv',
+                                delete=False) as modified_source_dataset_file:
+            modified_source_dataset_file.close()
+            logger.info('Saving modified source dataset as '
+                        f'"{modified_source_dataset_file.name}"')
+            modified_source_dataset.save_as(modified_source_dataset_file.name)
+            manage_config_dict = asdict(manage_config)
+            manage_config_dict['cleanup_command'] = cleanup_command
+            with manage(build_command, config=ManageConfig(**manage_config_dict)):
+                modified_decompiled_dataset = DecompiledCodeDataset.from_source_code_dataset(modified_source_dataset, bins,
+                                                                                             config=dataset_config)
+                if generation_mode == 'temp' or generation_mode == 'path':
+                    return modified_decompiled_dataset
+                return DecompiledCodeDataset.concat(modified_decompiled_dataset,
+                                                    compile_dataset(path, bins, build_command,
+                                                                    manage_config=manage_config,
+                                                                    extract_config=extract_config,
+                                                                    dataset_config=dataset_config,
+                                                                    repo_arg_with=repo_arg_with))
     else:
         with manage(build_command, config=manage_config):
             return create_decompiled_dataset(path, bins, extract_config=extract_config,
