@@ -25,9 +25,6 @@ file_name = os.path.basename(currentProgram.getExecutablePath())
 # Iterate over all functions in the current program
 function_iter = currentProgram.getFunctionManager().getFunctions(True)
 for function in function_iter:
-    # Construct uid as file_name:function_name
-    uid = file_name + ':' + function.getName()
-
     # Get the function name and entry point
     name = function.getName()
     entry_point = function.getEntryPoint().toString()
@@ -53,7 +50,6 @@ for function in function_iter:
 
     # Create a dictionary for this function
     func_dict = {
-        "uid": uid,
         "path": path,
         "definition": definition,
         "name": name,

@@ -2,14 +2,14 @@
 from dataclasses import asdict, dataclass, field
 import logging
 from pathlib import Path
-from typing import Any, Dict, Final, Optional, TypedDict
+from typing import Any, Dict, Final, Optional, TypedDict, no_type_check
 import uuid
 
 from tree_sitter import Node, Parser
 from tree_sitter import Language, Parser
 import tree_sitter_c as tsc
 
-from codablellm.core.utils import ASTEditor, SupportsJSON
+from codablellm.core.utils import ASTEditor, JSONObject, SupportsJSON
 
 logger = logging.getLogger('codablellm')
 
@@ -92,12 +92,6 @@ class SourceFunction(Function, SupportsJSON):
                 'end_byte': self.end_byte, 'class_name': self.class_name,
                 'metadata': self.metadata}
 
-    @classmethod
-    def from_json(cls, json_obj: SourceFunctionJSONObject) -> 'SourceFunction':
-        return cls(json_obj['uid'], Path(json_obj['path']), json_obj['language'],
-                   json_obj['definition'], json_obj['name'], json_obj['start_byte'],
-                   json_obj['end_byte'], json_obj['class_name'], json_obj['metadata'])
-
     @staticmethod
     def create_uid(path: Path, name: str, class_name: Optional[str] = None) -> str:
         if class_name:
@@ -105,6 +99,16 @@ class SourceFunction(Function, SupportsJSON):
         else:
             uid = f'{Function.create_uid(path)}::{name}'
         return uid
+
+    @staticmethod
+    def get_function_name(uid: str) -> str:
+        return uid.split('::')[-1].split('.')[-1]
+
+    @classmethod
+    def from_json(cls, json_obj: SourceFunctionJSONObject) -> 'SourceFunction':
+        return cls(json_obj['uid'], Path(json_obj['path']), json_obj['language'],
+                   json_obj['definition'], json_obj['name'], json_obj['start_byte'],
+                   json_obj['end_byte'], json_obj['class_name'], json_obj['metadata'])
 
     @classmethod
     def from_source(cls, path: Path, language: str, definition: str, name: str, start_byte: int,
@@ -173,7 +177,22 @@ class DecompiledFunction(Function, SupportsJSON):
         return {'uid': self.uid, 'path': str(self.path), 'definition': self.definition,
                 'name': self.name, 'assembly': self.assembly, 'architecture': self.architecture}
 
+    @staticmethod
+    def create_uid(path: Path, name: str) -> str:
+        return f'{Function.create_uid(path)}::{name}'
+
+    @staticmethod
+    def get_function_name(uid: str) -> str:
+        return uid.split('::')[-1]
+
     @classmethod
     def from_json(cls, json_obj: DecompiledFunctionJSONObject) -> 'DecompiledFunction':
         return cls(json_obj['uid'], Path(json_obj['path']), json_obj['definition'],
+                   json_obj['name'], json_obj['assembly'], json_obj['architecture'])
+
+    @no_type_check
+    @classmethod
+    def from_decompiled_json(cls, json_obj: JSONObject) -> 'DecompiledFunction':
+        return cls(DecompiledFunction.create_uid(Path(json_obj['path']), json_obj['name']),
+                   Path(json_obj['path']), json_obj['definition'],
                    json_obj['name'], json_obj['assembly'], json_obj['architecture'])

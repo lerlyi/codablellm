@@ -58,7 +58,7 @@ class Ghidra(Decompiler):
                         raise ValueError('Ghidra post script error: '
                                          f'{result.stdout}') from e
                     else:
-                        return [DecompiledFunction.from_json(j) for j in json_objects]
+                        return [DecompiledFunction.from_decompiled_json(j) for j in json_objects]
                 finally:
                     output_path.unlink(missing_ok=True)
 

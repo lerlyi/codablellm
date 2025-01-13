@@ -44,7 +44,7 @@ class Dataset(ABC):
         if extension in [e.casefold() for e in ['.json', '.jsonl']]:
             self.to_df().to_json(path, lines=extension == '.jsonl'.casefold(), orient='records')
         elif extension in [e.casefold() for e in ['.csv', '.tsv']]:
-            self.to_df().to_csv(sep=',' if extension == '.csv'.casefold() else '\t')
+            self.to_df().to_csv(path, sep=',' if extension == '.csv'.casefold() else '\t')
         elif extension in [e.casefold() for e in ['.xlsx', '.xls', '.xlsm']]:
             to_excel(self.to_df(), path)
         elif extension in [e.casefold() for e in ['.md', '.markdown']]:
@@ -229,8 +229,6 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
             decompiled_function_dict['decompiled_definition'] = \
                 decompiled_function_dict.pop('definition')
             source_functions_dict = source_functions.to_df().to_dict()
-            source_functions_dict['source_uids'] = \
-                source_functions_dict.pop('uid')
             source_functions_dict['source_files'] = \
                 source_functions_dict.pop('path')
             source_functions_dict['source_definitions'] = \
@@ -265,22 +263,21 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
     def _from_dataset_and_decompiled(cls, source_dataset: SourceCodeDataset,
                                      decompiled_functions: Iterable[DecompiledFunction],
                                      stripped: bool) -> 'DecompiledCodeDataset':
+
         potential_mappings: Dict[str, List[SourceFunction]] = {}
         for source_function in source_dataset.values():
-            potential_mappings.setdefault(source_function.uid,
+            potential_mappings.setdefault(SourceFunction.get_function_name(source_function.uid),
                                           []).append(source_dataset[source_function.uid])
         mappings: List[Tuple[DecompiledFunction, SourceCodeDataset]] = []
         with Progress('Mapping functions...'):
             for decompiled_function in decompiled_functions:
-                uid = SourceFunction.create_uid(decompiled_function.path,
-                                                decompiled_function.name)
-                if uid in mappings:
+                if decompiled_function.name in potential_mappings:
                     if stripped:
                         decompiled_function = decompiled_function.to_stripped()
                     mappings.append((decompiled_function,
-                                    SourceCodeDataset(potential_mappings[uid])))
-            logger.info(f'Successfully mapped {len(mappings)} decompiled '
-                        'functions')
+                                    SourceCodeDataset(potential_mappings[decompiled_function.name])))
+            logger.info(f'Successfully mapped {len(mappings)} decompiled functions to '
+                        f'{sum(len(f) for f in potential_mappings.values())} source functions')
             return cls(mappings)
 
     @classmethod

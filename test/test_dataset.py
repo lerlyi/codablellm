@@ -83,4 +83,24 @@ def test_modified_source_dataset(c_repository: Path) -> None:
 
 def test_decompiled_dataset(c_repository: Path, c_bin: Path) -> None:
     dataset = DecompiledCodeDataset.from_repository(c_repository, [c_bin])
-    assert len(dataset) == 0
+    assert len(dataset) == 8
+    mappings = dataset.values()
+    dataset.save_as('test.json')
+    assert dataset.to_df().to_dict() == DataFrame({'bin': [str(f.path) for f, _ in mappings],
+                                                   'decompiled_uid': [f.uid for f, _ in mappings],
+                                                   'decompiled_definition': [f.definition for f, _ in mappings],
+                                                   'assembly': [f.assembly for f, _ in mappings],
+                                                   'architecture': [f.architecture for f, _ in mappings],
+                                                   'source_files': [{uid: str(f.path) for uid, f in d.items()}
+                                                                    for _, d in mappings],
+                                                   'source_definitions': [{uid: f.definition for uid, f in d.items()}
+                                                                          for _, d in mappings],
+                                                   'language': [{uid: f.language for uid, f in d.items()}
+                                                                for _, d in mappings],
+                                                   'name': [f.name for f, _ in mappings],
+                                                   'source_file_start_bytes': [{uid: f.start_byte for uid, f in d.items()}
+                                                                               for _, d in mappings],
+                                                   'source_file_end_bytes': [{uid: f.end_byte for uid, f in d.items()}
+                                                                             for _, d in mappings],
+                                                   'class_names': [{uid: f.class_name for uid, f in d.items()}
+                                                                   for _, d in mappings]}).set_index('decompiled_uid').to_dict()
