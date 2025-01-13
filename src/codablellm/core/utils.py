@@ -19,22 +19,50 @@ from codablellm.exceptions import ExtraNotInstalled, TSParsingError
 logger = logging.getLogger('codablellm')
 
 PathLike = Union[Path, str]
+'''
+An object representing a file system path.
+'''
+
 JSONValue = Optional[Union[str, int, float,
                            bool, List['JSONValue'], 'JSONObject']]
+'''
+Represents a valid JSON value
+'''
 JSONObject = Dict[str, JSONValue]
+'''
+Represents a JSON object.
+'''
 
-JSONObject_T = TypeVar('JSONObject_T', bound=JSONObject)  # type: ignore
+JSONObject_T = TypeVar('JSONObject_T', bound=JSONObject)
 SupportsJSON_T = TypeVar('SupportsJSON_T',
-                         bound='SupportsJSON')  # type: ignore
+                         bound='SupportsJSON')
 
 
 class SupportsJSON(Protocol):
+    '''
+    A class that supports JSON serialization/deserialization.
+    '''
 
     def to_json(self) -> JSONObject_T:  # type: ignore
+        '''
+        Serializes this object to a JSON object.
+
+        Returns:
+            A JSON representation of the object.
+        '''
         ...
 
     @classmethod
     def from_json(cls: Type[SupportsJSON_T], json_obj: JSONObject_T) -> SupportsJSON_T:  # type: ignore
+        '''
+        Deserializes a JSON object to this object.
+
+        Parameters:
+            json_obj: The JSON representation of this object.
+
+        Returns:
+            This object loaded from the JSON object.
+        '''
         ...
 
 
@@ -83,6 +111,9 @@ def resolve_kwargs(**kwargs: Any) -> Dict[str, Any]:
 
 
 class ASTEditor:
+    '''
+    A Tree-sitter AST editor.
+    '''
 
     def __init__(self, parser: Parser, source_code: str, ensure_parsable: bool = True) -> None:
         self.parser = parser
@@ -188,6 +219,16 @@ def load_checkpoint_data(prefix: str, delete_on_load: bool = False) -> List[Supp
 
 
 def count_openai_tokens(prompt: str, model: str = "gpt-4") -> int:
+    '''
+    Tokenizes a prompt and calculate the number of tokens used by an OpenAI model.
+
+    Parameters:
+        prompt: The prompt to tokenize.
+        model: The OpenAI model to calculate the number of tokens used.
+
+    Returns:
+        The number tokens used by the OpenAI model.
+    '''
     # Load the appropriate tokenizer for the model
     tokenizer = tiktoken.encoding_for_model(model)
     # Tokenize the prompt and count the tokens
@@ -196,10 +237,31 @@ def count_openai_tokens(prompt: str, model: str = "gpt-4") -> int:
 
 
 PromptCallable = Callable[Concatenate[str, ...], T]
+'''
+Function that has a string as its first positional argument, assumably the prompt to a LLM.
+'''
 
 
 def rate_limiter(max_rpm: int, max_tpm: int, model: str = "gpt-4") -> Callable[[PromptCallable[T]],
                                                                                Callable[..., T]]:
+    '''
+    A decorator that enforces rate limits for OpenAI API calls by introducing delays before 
+    each function call to ensure that the maximum requests and tokens per minute are not exceeded.
+
+    This decorator assumes that the decorated function accepts a string prompt as its first argument 
+    and uses an OpenAI model to process the prompt.
+
+    Parameters:
+        max_rpm: The maximum number of requests allowed per minute.
+        max_tpm: The maximum number of tokens allowed per minute.
+        model: The name of the OpenAI model used to calculate the number of tokens per prompt. 
+
+    Raises:
+        TypeError: If the decorated function does not have a string as its first argument.
+
+    Returns:
+        The decorated function that respects the specified rate limits.
+    '''
     lock = threading.Lock()
     last_call_time: List[float] = [0]
     tokens_used_in_current_minute = [0]

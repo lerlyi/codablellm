@@ -1,3 +1,7 @@
+'''
+Core functionality of codablellm.
+'''
+
 from codablellm.core.dashboard import (
     CallablePoolProgress, Progress, ProcessPoolProgress, SubmitCallable
 )

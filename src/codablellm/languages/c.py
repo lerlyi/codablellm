@@ -1,3 +1,7 @@
+'''
+Functionality for extracting C source code functions.
+'''
+
 
 import itertools
 from pathlib import Path
@@ -16,13 +20,28 @@ TREE_SITTER_QUERY: Final[str] = (
     '       declarator: (identifier) @function.name'
     '   )'
     ') @function.definition')
+'''
+Tree-sitter query for extracting function names and definitions.
+'''
 
 
 class CExtractor(Extractor):
+    '''
+    Source code extractor for extracting C functions.
+    '''
 
     NAME: Final[str] = 'C'
+    '''
+    Name of the language that is being extracted.
+    '''
     LANGUAGE: Final[Language] = Language(tsc.language())
+    '''
+    Tree-sitter `Language` instance for C.
+    '''
     PARSER: Final[Parser] = Parser(LANGUAGE)
+    '''
+    Tree-sitter `Parser` instance for C.
+    '''
 
     def extract(self, path: PathLike) -> Sequence[SourceFunction]:
         functions = []

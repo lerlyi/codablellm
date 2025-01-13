@@ -15,12 +15,34 @@ logger = logging.getLogger('codablellm')
 
 
 class Ghidra(Decompiler):
+    '''
+    The Ghidra decompiler.
+
+    This class provides an interface to the Ghidra decompiler, allowing for automated 
+    decompilation of binaries using Ghidra's `analyzeHeadless` command. It requires 
+    the `GHIDRA_HEADLESS` environment variable to be set, pointing to the `analyzeHeadless` 
+    executable.
+    '''
 
     ENVIRON_KEY: Final[str] = 'GHIDRA_HEADLESS'
+    '''
+    The system environment variable key that must contain the path to Ghidra's 
+    `analyzeHeadless` command.
+    '''
+
     SCRIPT_PATH: Final[Path] = Path(__file__).parent.parent / 'resources' / 'ghidra_scripts' / \
         'decompile.py'
+    '''
+    The path to the Ghidra decompiler script (`decompile.py`) used during the decompilation process.
+    '''
 
     def __init__(self) -> None:
+        '''
+        Initializes a new `Ghidra` decompiler instance.
+
+        Raises:
+            ValueError: If GHIDRA_HEADLESS is not set.
+        '''
         super().__init__()
         ghidra_path = Ghidra.get_path()
         if not ghidra_path:
@@ -64,8 +86,20 @@ class Ghidra(Decompiler):
 
     @staticmethod
     def set_path(path: PathLike) -> None:
+        '''
+        Set's the path to Ghidra's `analyzeHeadless` command.
+
+        Parameters:
+            path: The absolute path to Ghidra's `analyzeHeadless` command.
+        '''
         os.environ[Ghidra.ENVIRON_KEY] = str(path)
 
     @staticmethod
     def get_path() -> Optional[Path]:
+        '''
+        Retrieves the path to Ghidra's `analyzeHeadless` command.
+
+        Returns:
+            The path to Ghidra's `analyzeHeadless` command as a `Path` object, or `None` if the environment variable is not set.
+        '''
         os.environ.get(Ghidra.ENVIRON_KEY)

@@ -161,7 +161,7 @@ class DecompiledFunction(Function, SupportsJSON):
                                  f'text: {node}')
             orig_function = node.text.decode()
             stripped_symbol = symbol_mapping.setdefault(orig_function,
-                                                        f'sub_{str(uuid.uuid4()).split('-', maxsplit=1)[0]}')
+                                                        f'sub_{str(uuid.uuid4()).split("-", maxsplit=1)[0]}')
             assembly = assembly.replace(orig_function, stripped_symbol)
             return stripped_symbol
 

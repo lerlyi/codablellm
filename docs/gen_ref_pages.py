@@ -1,5 +1,5 @@
 """
-Generate the code reference pages and navigation.
+Generate the code documentation pages and navigation.
 """
 
 import mkdocs_gen_files
@@ -14,7 +14,7 @@ for path in sorted(p for p in Path("src").rglob("*.py") if 'resources' not in p.
     # Get module and docs paths
     module_path = path.relative_to("src").with_suffix("")
     doc_path = path.relative_to("src").with_suffix(".md")
-    full_doc_path = Path("reference", doc_path)
+    full_doc_path = Path("documentation", doc_path)
 
     parts = tuple(module_path.parts)
 
@@ -36,5 +36,5 @@ for path in sorted(p for p in Path("src").rglob("*.py") if 'resources' not in p.
     mkdocs_gen_files.set_edit_path(full_doc_path, path)
 
 # Create navigation file
-with mkdocs_gen_files.open("reference/SUMMARY.md", "w") as nav_file:
+with mkdocs_gen_files.open("documentation/SUMMARY.md", "w") as nav_file:
     nav_file.writelines(nav.build_literate_nav())

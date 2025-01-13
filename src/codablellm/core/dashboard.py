@@ -1,3 +1,7 @@
+'''
+Functionality for creating dashboards of complex processes.
+'''
+
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor
@@ -79,6 +83,9 @@ R = TypeVar('R')
 T = TypeVar('T')
 
 SubmitCallable = Callable[Concatenate[I, ...], R]
+'''
+A callable object that is provided to `ProcessPoolExecutor.submit`.
+'''
 
 
 class CallablePoolProgress(ABC, Generic[I, R, T]):

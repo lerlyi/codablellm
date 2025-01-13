@@ -1,3 +1,7 @@
+'''
+The codablellm command line interface.
+'''
+
 from enum import Enum
 import importlib
 import json
@@ -234,6 +238,9 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
                                          SourceFunction]] = TRANSFORM,
             use_checkpoint: Optional[bool] = USE_CHECKPOINT,
             url: str = URL, verbose: bool = VERBOSE, version: bool = VERSION) -> None:
+    '''
+    Creates a code dataset from a local repository.
+    '''
     # Configure decompiler
     codablellm.decompiler.set_decompiler(decompiler)
     if extractors:
