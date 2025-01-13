@@ -85,7 +85,6 @@ def test_decompiled_dataset(c_repository: Path, c_bin: Path) -> None:
     dataset = DecompiledCodeDataset.from_repository(c_repository, [c_bin])
     assert len(dataset) == 8
     mappings = dataset.values()
-    dataset.save_as('test.json')
     assert dataset.to_df().to_dict() == DataFrame({'bin': [str(f.path) for f, _ in mappings],
                                                    'decompiled_uid': [f.uid for f, _ in mappings],
                                                    'decompiled_definition': [f.definition for f, _ in mappings],

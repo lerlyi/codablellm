@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 import importlib
 import logging
 from pathlib import Path
-from typing import Any, Dict, Final, List, Optional, TypedDict, Sequence, Union, overload
+from typing import Any, Dict, Final, List, Literal, Optional, TypedDict, Sequence, Union, overload
 
 from codablellm.core.dashboard import CallablePoolProgress, ProcessPoolProgress, Progress
 from codablellm.core.function import DecompiledFunction
@@ -79,13 +79,13 @@ class _CallableDecompiler(CallablePoolProgress[PathLike, Sequence[DecompiledFunc
 @overload
 def decompile(paths: Union[PathLike, Sequence[PathLike]],
               config: DecompileConfig = DecompileConfig(),
-              as_callable_pool: bool = False) -> List[DecompiledFunction]: ...
+              as_callable_pool: Literal[False] = False) -> List[DecompiledFunction]: ...
 
 
 @overload
 def decompile(paths: Union[PathLike, Sequence[PathLike]],
               config: DecompileConfig = DecompileConfig(),
-              as_callable_pool: bool = True) -> _CallableDecompiler: ...
+              as_callable_pool: Literal[True] = True) -> _CallableDecompiler: ...
 
 
 def decompile(paths: Union[PathLike, Sequence[PathLike]],

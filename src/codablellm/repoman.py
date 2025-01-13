@@ -112,6 +112,9 @@ def compile_dataset(path: utils.PathLike, bins: Sequence[utils.PathLike], build_
         build_command = add_command_args(build_command, path)
     if manage_config.cleanup_command and (repo_arg_with == 'cleanup' or repo_arg_with == 'both'):
         cleanup_command = add_command_args(manage_config.cleanup_command, path)
+        manage_config_dict = asdict(manage_config)
+        manage_config_dict['cleanup_command'] = cleanup_command
+        manage_config = ManageConfig(**manage_config_dict)
     else:
         cleanup_command = manage_config.cleanup_command
     if extract_config.transform:
@@ -122,25 +125,29 @@ def compile_dataset(path: utils.PathLike, bins: Sequence[utils.PathLike], build_
                                                             extract_config=extract_config
                                                         ))
         with NamedTemporaryFile('w+', prefix='modified_source_dataset',
-                                suffix='.csv',
+                                suffix='.json',
                                 delete=False) as modified_source_dataset_file:
             modified_source_dataset_file.close()
-            logger.info('Saving modified source dataset as '
+            logger.info('Saving backup modified source dataset as '
                         f'"{modified_source_dataset_file.name}"')
             modified_source_dataset.save_as(modified_source_dataset_file.name)
-            manage_config_dict = asdict(manage_config)
-            manage_config_dict['cleanup_command'] = cleanup_command
-            with manage(build_command, config=ManageConfig(**manage_config_dict)):
+            with manage(build_command, config=manage_config):
                 modified_decompiled_dataset = DecompiledCodeDataset.from_source_code_dataset(modified_source_dataset, bins,
                                                                                              config=dataset_config)
                 if generation_mode == 'temp' or generation_mode == 'path':
+                    logger.debug('Removing backup modified source dataset '
+                                 f'"{modified_source_dataset_file.name}"')
                     return modified_decompiled_dataset
-                return DecompiledCodeDataset.concat(modified_decompiled_dataset,
-                                                    compile_dataset(path, bins, build_command,
-                                                                    manage_config=manage_config,
-                                                                    extract_config=extract_config,
-                                                                    dataset_config=dataset_config,
-                                                                    repo_arg_with=repo_arg_with))
+                extract_config_dict = asdict(extract_config)
+                extract_config_dict['transform'] = None
+                no_transform_extract = ExtractConfig(**extract_config_dict)
+                original_decompiled_dataset = compile_dataset(path, bins, build_command,
+                                                              manage_config=manage_config,
+                                                              extract_config=no_transform_extract,
+                                                              dataset_config=dataset_config,
+                                                              repo_arg_with=repo_arg_with,
+                                                              generation_mode='path')
+                return DecompiledCodeDataset((d, s) for d, s in original_decompiled_dataset.values())
     else:
         with manage(build_command, config=manage_config):
             return create_decompiled_dataset(path, bins, extract_config=extract_config,

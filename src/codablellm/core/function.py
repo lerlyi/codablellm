@@ -125,6 +125,7 @@ class DecompiledFunctionJSONObject(TypedDict):
     name: str
     assembly: str
     architecture: str
+    metadata: Dict[str, Any]
 
 
 GET_C_SYMBOLS_QUERY: Final[str] = (
@@ -146,6 +147,7 @@ class DecompiledFunction(Function, SupportsJSON):
     name: str
     assembly: str
     architecture: str
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_stripped(self) -> 'DecompiledFunction':
         definition = self.definition
@@ -173,9 +175,14 @@ class DecompiledFunction(Function, SupportsJSON):
         return DecompiledFunction(self.uid, self.path, definition, first_function, assembly,
                                   self.architecture)
 
+    def with_metadata(self, metadata: Dict[str, Any]) -> 'DecompiledFunction':
+        return DecompiledFunction(self.uid, self.path, self.definition, self.name, self.assembly,
+                                  self.architecture, metadata=metadata)
+
     def to_json(self) -> DecompiledFunctionJSONObject:
         return {'uid': self.uid, 'path': str(self.path), 'definition': self.definition,
-                'name': self.name, 'assembly': self.assembly, 'architecture': self.architecture}
+                'name': self.name, 'assembly': self.assembly, 'architecture': self.architecture,
+                'metadata': self.metadata}
 
     @staticmethod
     def create_uid(path: Path, name: str) -> str:
@@ -188,7 +195,8 @@ class DecompiledFunction(Function, SupportsJSON):
     @classmethod
     def from_json(cls, json_obj: DecompiledFunctionJSONObject) -> 'DecompiledFunction':
         return cls(json_obj['uid'], Path(json_obj['path']), json_obj['definition'],
-                   json_obj['name'], json_obj['assembly'], json_obj['architecture'])
+                   json_obj['name'], json_obj['assembly'], json_obj['architecture'],
+                   json_obj['metadata'])
 
     @no_type_check
     @classmethod

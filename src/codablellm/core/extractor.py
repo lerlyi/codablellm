@@ -184,12 +184,12 @@ class _CallableExtractor(CallablePoolProgress[Tuple[Extractor, Path], Sequence[S
 
 @overload
 def extract(path: PathLike, config: ExtractConfig = ExtractConfig(),
-            as_callable_pool: bool = False) -> List[SourceFunction]: ...
+            as_callable_pool: Literal[False] = False) -> List[SourceFunction]: ...
 
 
 @overload
 def extract(path: PathLike, config: ExtractConfig = ExtractConfig(),
-            as_callable_pool: bool = True) -> _CallableExtractor: ...
+            as_callable_pool: Literal[True] = True) -> _CallableExtractor: ...
 
 
 def extract(path: PathLike, config: ExtractConfig = ExtractConfig(),

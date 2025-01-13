@@ -18,6 +18,7 @@ def test_manage(failing_command: Command) -> None:
 def test_compile_dataset(c_repository: Path, c_bin: Path) -> None:
     dataset = compile_dataset(c_repository, [c_bin], 'make',
                               extract_config=ExtractConfig(
-                                  transform=lambda s: s.with_definition('')
+                                  transform=lambda s: s.with_definition('',
+                                                                        metadata={'is_empty': True})
     ),
         generation_mode='temp-append')

@@ -120,14 +120,14 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
     def from_repository(cls, path: utils.PathLike,
                         config: SourceCodeDatasetConfig = SourceCodeDatasetConfig(
                             log_generation_warning=False),
-                        as_callable_pool: bool = False) -> 'SourceCodeDataset': ...
+                        as_callable_pool: Literal[False] = False) -> 'SourceCodeDataset': ...
 
     @overload
     @classmethod
     def from_repository(cls, path: utils.PathLike,
                         config: SourceCodeDatasetConfig = SourceCodeDatasetConfig(
                             log_generation_warning=False),
-                        as_callable_pool: bool = True) -> extractor._CallableExtractor: ...
+                        as_callable_pool: Literal[True] = True) -> extractor._CallableExtractor: ...
 
     @classmethod
     def from_repository(cls, path: utils.PathLike,
@@ -143,8 +143,8 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
                     copied_repo_dir = Path(temp_dir) / Path(path).name
                     shutil.copytree(path, copied_repo_dir)
                     path = copied_repo_dir
-                extraction_pool: extractor._CallableExtractor = extractor.extract(path, as_callable_pool=True,
-                                                                                  config=config.extract_config)  # type: ignore
+                extraction_pool = extractor.extract(path, as_callable_pool=True,
+                                                    config=config.extract_config)
                 if as_callable_pool:
                     return extraction_pool
                 return cls(s for s in extraction_pool())
@@ -164,8 +164,8 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
                                                        config=path_config,
                                                        as_callable_pool=True)
         original_functions, transformed_functions = \
-            ProcessPoolProgress.multi_progress(original_extraction_pool,  # type: ignore
-                                               transformed_extraction_pool)  # type: ignore
+            ProcessPoolProgress.multi_progress(original_extraction_pool,
+                                               transformed_extraction_pool)
         original_dataset = cls(s for s in original_functions)
         transformed_dataset = cls(s for s in transformed_functions)
         final_functions: List[SourceFunction] = []
@@ -222,6 +222,9 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
         for decompiled_function, source_functions in self.values():
             decompiled_function_json = decompiled_function.to_json()
             decompiled_function_dict = dict(decompiled_function_json)
+            del decompiled_function_dict['metadata']
+            decompiled_function_dict.update(
+                decompiled_function_json['metadata'])
             decompiled_function_dict['decompiled_uid'] = \
                 decompiled_function_dict.pop('uid')
             decompiled_function_dict['bin'] = \
@@ -292,8 +295,8 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
         decompile_pool = decompiler.decompile(bins, as_callable_pool=True,
                                               config=dataset_config.decompiler_config)
         source_functions, decompiled_functions = \
-            ProcessPoolProgress.multi_progress(original_extraction_pool,  # type: ignore
-                                               decompile_pool)  # type: ignore
+            ProcessPoolProgress.multi_progress(original_extraction_pool,
+                                               decompile_pool)
         source_dataset = SourceCodeDataset(source_functions)
         return cls._from_dataset_and_decompiled(source_dataset, decompiled_functions, dataset_config.strip)
 
@@ -303,7 +306,3 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
         return cls._from_dataset_and_decompiled(dataset, decompiler.decompile(bins,
                                                                               **utils.resolve_kwargs(max_workers=config.decompiler_config.max_workers)),
                                                 config.strip)
-
-    @classmethod
-    def concat(cls, *datasets: 'DecompiledCodeDataset') -> 'DecompiledCodeDataset':
-        return cls(m for d in datasets for m in d.values())
