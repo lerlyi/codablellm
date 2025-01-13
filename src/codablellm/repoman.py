@@ -3,14 +3,14 @@ from dataclasses import asdict, dataclass
 import logging
 import subprocess
 from tempfile import NamedTemporaryFile
-from typing import Any, Callable, Generator, Iterable, Literal, Optional, Sequence, Set, Union
+from typing import Any, Callable, Dict, Generator, Iterable, Literal, Optional, Sequence, Set, Tuple, Union
 
 from rich.prompt import Prompt
 
 from codablellm.core import utils
 from codablellm.core.dashboard import Progress
 from codablellm.core.extractor import ExtractConfig
-from codablellm.core.function import SourceFunction
+from codablellm.core.function import DecompiledFunction, SourceFunction
 from codablellm.dataset import DecompiledCodeDataset, DecompiledCodeDatasetConfig, SourceCodeDataset, SourceCodeDatasetConfig
 
 
@@ -108,6 +108,25 @@ def compile_dataset(path: utils.PathLike, bins: Sequence[utils.PathLike], build_
                     repo_arg_with: Optional[Literal['build',
                                                     'cleanup', 'both']] = None
                     ) -> DecompiledCodeDataset:
+    def try_transform_metadata(decompiled_function: DecompiledFunction,
+                               source_functions: SourceCodeDataset,
+                               other_dataset: DecompiledCodeDataset) -> Tuple[DecompiledFunction, SourceCodeDataset]:
+        matched_decompiled_function, matched_source_functions = \
+            other_dataset.get(decompiled_function,  # type: ignore
+                              default=(None, None))
+        if matched_decompiled_function and matched_source_functions:
+            decompiled_function = decompiled_function.with_metadata({
+                **decompiled_function.metadata,
+                'transformed_assembly': matched_decompiled_function.assembly,
+                'transformed_decompiled_definition': matched_decompiled_function.definition,
+            })
+            source_functions = SourceCodeDataset(s.with_metadata({
+                'transformed_source_definitions': s.definition,
+                'transformed_class_names': s.class_name,
+                **s.metadata
+            }) for s in matched_source_functions.values())
+        return decompiled_function, source_functions
+
     if repo_arg_with == 'build' or repo_arg_with == 'both':
         build_command = add_command_args(build_command, path)
     if manage_config.cleanup_command and (repo_arg_with == 'cleanup' or repo_arg_with == 'both'):
@@ -147,7 +166,8 @@ def compile_dataset(path: utils.PathLike, bins: Sequence[utils.PathLike], build_
                                                               dataset_config=dataset_config,
                                                               repo_arg_with=repo_arg_with,
                                                               generation_mode='path')
-                return DecompiledCodeDataset((d, s) for d, s in original_decompiled_dataset.values())
+                return DecompiledCodeDataset(try_transform_metadata(d, s, modified_decompiled_dataset)
+                                             for d, s in original_decompiled_dataset.values())
     else:
         with manage(build_command, config=manage_config):
             return create_decompiled_dataset(path, bins, extract_config=extract_config,
