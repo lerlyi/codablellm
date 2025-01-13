@@ -156,7 +156,7 @@ GENERATION_MODE: Final[GenerationMode] = Option(DEFAULT_SOURCE_CODE_DATASET_CONF
                                                 help='Specify how the dataset should be '
                                                 'generated from the repository.')
 GHIDRA: Final[Optional[Path]] = Option(Ghidra.get_path(), envvar=Ghidra.ENVIRON_KEY, dir_okay=False,
-                                       callback=Ghidra.set_path,
+                                       callback=lambda v: Ghidra.set_path if v else None,
                                        help="Path to Ghidra's analyzeHeadless command.")
 GIT: Final[bool] = Option(False, '--git / --archive', help='Determines whether --url is a Git '
                           'download URL or a tarball/zipfile download URL.')
@@ -287,6 +287,10 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
         checkpoint=checkpoint,
         use_checkpoint=use_checkpoint
     )
+    if build:
+        logger.warning('--build specified without --decompile. --decompile enabled '
+                       'automatically.')
+        decompile = True
     # Create source code/decompiled code dataset
     if decompile:
         if not bins or not any(bins):
