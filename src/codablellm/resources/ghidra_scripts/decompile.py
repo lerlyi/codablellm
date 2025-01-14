@@ -39,11 +39,12 @@ for function in function_iter:
         definition = decompiled_results.getDecompiledFunction().getC()
     else:
         print("Decompilation failed")
+        exit(1)
 
     # Get the assembly instructions
     instruction_iter = \
         currentProgram.getListing().getInstructions(function.getBody(), True)
-    assembly = "\n".join([str(instr) for instr in instruction_iter])
+    assembly = "\n".join([instr.toString() for instr in instruction_iter])
 
     # Get the architecture (processor name)
     architecture = str(currentProgram.getLanguage().getProcessor())

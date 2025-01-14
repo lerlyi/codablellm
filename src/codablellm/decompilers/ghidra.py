@@ -66,10 +66,10 @@ class Ghidra(Decompiler):
                     output_file.close()
                     # Run decompile script
                     try:
-                        subprocess.run([self._ghidra_path, project_dir, 'codablellm', '-import', path,
-                                        '-scriptPath', Ghidra.SCRIPT_PATH.parent, '-noanalysis',
-                                        '-postScript', Ghidra.SCRIPT_PATH.name, output_path],
-                                       check=True, capture_output=True)
+                        results = subprocess.run([self._ghidra_path, project_dir, 'codablellm', '-import', path,
+                                                  '-scriptPath', Ghidra.SCRIPT_PATH.parent, '-noanalysis',
+                                                  '-postScript', Ghidra.SCRIPT_PATH.name, output_path],
+                                                 check=True, capture_output=True)
                     except subprocess.CalledProcessError as e:
                         logger.debug(f'Failed Ghidra command stdout:\n{
                                      e.stdout.decode()}')
@@ -80,8 +80,10 @@ class Ghidra(Decompiler):
                         json_objects: List[DecompiledFunctionJSONObject] = \
                             json.loads(output_path.read_text())
                     except json.JSONDecodeError as e:
-                        raise ValueError('Could not deserialize decompiled '
-                                         'function') from e
+                        logger.debug(f'Failed Ghidra post-script stdout:\n{
+                                     results.stdout.decode()}')
+                        raise ValueError('Ghidra post-script failure '
+                                         f'\nstderr:\n{results.stderr.decode()}') from e
                     else:
                         return [DecompiledFunction.from_decompiled_json(j) for j in json_objects]
                 finally:
