@@ -73,8 +73,10 @@ def execute_command(command: Command, error_handler: CommandErrorHandler = 'none
         try:
             subprocess.run(command, capture_output=True, text=True, shell=True,
                            check=True)
-        except subprocess.CalledProcessError:
-            logger.error(f'Command failed: {command}')
+        except subprocess.CalledProcessError as e:
+            logger.error(f'Command failed: "{command}"'
+                         f'\nstdout: {e.stdout}'
+                         f'\nstderr: {e.stderr}')
             if error_handler == 'interactive':
                 result = Prompt.ask('A command error occurred. You can manually fix the issue and '
                                     'retry, ignore the error to continue, or abort the process. '
