@@ -8,7 +8,7 @@ from typing import Final, List, Optional, Sequence
 
 from codablellm.core.decompiler import Decompiler
 from codablellm.core.function import DecompiledFunction, DecompiledFunctionJSONObject
-from codablellm.core.utils import PathLike
+from codablellm.core.utils import is_binary, PathLike
 
 
 logger = logging.getLogger('codablellm')
@@ -51,34 +51,37 @@ class Ghidra(Decompiler):
         self._ghidra_path = ghidra_path
 
     def decompile(self, path: PathLike) -> Sequence[DecompiledFunction]:
-        # Ensure Ghidra is installed
         path = Path(path)
+        if not is_binary(path):
+            raise ValueError('path must be an existing binary.')
         # Create a temporary directory for the Ghidra project
         with TemporaryDirectory() as project_dir:
             logger.debug(f'Ghidra project directory created at {project_dir}')
             # Create a temporary file to store the JSON output of the decompiled functions
             with NamedTemporaryFile(mode='w+', suffix='.json', delete=False) as output_file:
                 logger.debug('Ghidra decompiled functions file created '
-                             f'at {output_file}')
+                             f'at {output_file.name}')
                 output_path = Path(output_file.name)
                 try:
                     output_file.close()
                     # Run decompile script
                     try:
-                        result = subprocess.run([self._ghidra_path, project_dir, 'codablellm', '-import', path,
-                                                 '-scriptPath', Ghidra.SCRIPT_PATH.parent, '-noanalysis',
-                                                 '-postScript', Ghidra.SCRIPT_PATH.name, output_path],
-                                                check=True, capture_output=True)
+                        subprocess.run([self._ghidra_path, project_dir, 'codablellm', '-import', path,
+                                        '-scriptPath', Ghidra.SCRIPT_PATH.parent, '-noanalysis',
+                                        '-postScript', Ghidra.SCRIPT_PATH.name, output_path],
+                                       check=True, capture_output=True)
                     except subprocess.CalledProcessError as e:
-                        raise ValueError('Ghidra command failed: '
-                                         f'{e.stderr}') from e
+                        logger.debug(f'Failed Ghidra command stdout:\n{
+                                     e.stdout.decode()}')
+                        raise ValueError(f'Ghidra command failed: "{e.cmd}"'
+                                         f'\nstderr:\n{e.stderr.decode()}') from e
                     # Deserialize decompiled functions
                     try:
                         json_objects: List[DecompiledFunctionJSONObject] = \
                             json.loads(output_path.read_text())
                     except json.JSONDecodeError as e:
-                        raise ValueError('Ghidra post script error: '
-                                         f'{result.stdout}') from e
+                        raise ValueError('Could not deserialize decompiled '
+                                         'function') from e
                     else:
                         return [DecompiledFunction.from_decompiled_json(j) for j in json_objects]
                 finally:
@@ -103,4 +106,5 @@ class Ghidra(Decompiler):
         Returns:
             The path to Ghidra's `analyzeHeadless` command as a `Path` object, or `None` if the environment variable is not set.
         '''
-        os.environ.get(Ghidra.ENVIRON_KEY)
+        value = os.environ.get(Ghidra.ENVIRON_KEY)
+        return Path(value) if value else None

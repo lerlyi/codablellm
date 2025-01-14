@@ -141,8 +141,6 @@ class ProcessPoolProgress(Iterator[R], Generic[I, R]):
                     if not isinstance(exception, CodableLLMError):
                         logger.error('Unexpected error occured during batch operation: '
                                      f'{type(exception).__name__}: {exception}')
-                        self._process_pool_executor.shutdown(wait=False,
-                                                             cancel_futures=True)
                     else:
                         logger.warning('Error occured during batch operation: '
                                        f'{type(exception).__name__}: {exception}')
