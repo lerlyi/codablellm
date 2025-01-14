@@ -93,6 +93,7 @@ class Ghidra(Decompiler):
             path: The absolute path to Ghidra's `analyzeHeadless` command.
         '''
         os.environ[Ghidra.ENVIRON_KEY] = str(path)
+        logger.debug(f'Set {Ghidra.ENVIRON_KEY}="{path}"')
 
     @staticmethod
     def get_path() -> Optional[Path]:

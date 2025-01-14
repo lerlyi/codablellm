@@ -307,7 +307,8 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
                                                        as_callable_pool=True)
         original_functions, transformed_functions = \
             ProcessPoolProgress.multi_progress(original_extraction_pool,
-                                               transformed_extraction_pool)
+                                               transformed_extraction_pool,
+                                               title='Generating Source Code Dataset')
         # Create temporary transformed and non-transformed datasets
         original_dataset = cls(s for s in original_functions)
         transformed_dataset = cls(s for s in transformed_functions)
@@ -548,7 +549,8 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
                                               config=dataset_config.decompiler_config)
         source_functions, decompiled_functions = \
             ProcessPoolProgress.multi_progress(original_extraction_pool,
-                                               decompile_pool)
+                                               decompile_pool,
+                                               title='Generating Decompiled Code Dataset')
         source_dataset = SourceCodeDataset(source_functions)
         return cls._from_dataset_and_decompiled(source_dataset, decompiled_functions, dataset_config.strip)
 
