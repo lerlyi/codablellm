@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass
 import logging
 import subprocess
 from tempfile import NamedTemporaryFile
-from typing import Any, Generator, Literal, Optional, Sequence, Tuple, Union
+from typing import Any, Generator, List, Literal, Optional, Sequence, Tuple, Union
 
 from rich.prompt import Prompt
 
@@ -21,7 +21,7 @@ from codablellm.dataset import (
 )
 
 
-Command = Union[Any, Sequence[Any]]
+Command = Union[Any, List[Any]]
 '''
 A CLI command.
 '''
@@ -51,7 +51,7 @@ def add_command_args(command: Command, *args: Any) -> Command:
     Returns:
         The updated command with the appended arguments.
     '''
-    return [*command, *args] if not isinstance(command, Sequence) else [command, *args]
+    return [command, *args] if not isinstance(command, List) else [*command, *args]
 
 
 def execute_command(command: Command, error_handler: CommandErrorHandler = 'none',
@@ -68,30 +68,30 @@ def execute_command(command: Command, error_handler: CommandErrorHandler = 'none
     if not task:
         task = f'Executing: "{command}"'
     logger.info(task)
-    ctx = Progress(f'{task}...') if show_progress else nullcontext()
-    with ctx:
-        try:
+    try:
+        ctx = Progress(f'{task}...') if show_progress else nullcontext()
+        with ctx:
             subprocess.run(command, capture_output=True, text=True, shell=True,
                            check=True)
-        except subprocess.CalledProcessError as e:
-            logger.error(f'Command failed: "{command}"'
-                         f'\nstdout: {e.stdout}'
-                         f'\nstderr: {e.stderr}')
-            if error_handler == 'interactive':
-                result = Prompt.ask('A command error occurred. You can manually fix the issue and '
-                                    'retry, ignore the error to continue, or abort the process. '
-                                    'How would you like to proceed?',
-                                    choices=['retry', 'ignore', 'abort'],
-                                    case_sensitive=False, default='retry')
-                if result == 'retry':
-                    execute_command(command, error_handler=error_handler,
-                                    task=task)
-                elif result == 'abort':
-                    error_handler = 'none'
-            if error_handler == 'none':
-                raise
-        else:
-            logger.info(f'Successfully executed "{command}"')
+    except subprocess.CalledProcessError as e:
+        logger.error(f'Command failed: "{command}"'
+                     f'\nstdout: {e.stdout}'
+                     f'\nstderr: {e.stderr}')
+        if error_handler == 'interactive':
+            result = Prompt.ask('A command error occurred. You can manually fix the issue and '
+                                'retry, ignore the error to continue, or abort the process. '
+                                'How would you like to proceed?',
+                                choices=['retry', 'ignore', 'abort'],
+                                case_sensitive=False, default='retry')
+            if result == 'retry':
+                execute_command(command, error_handler=error_handler,
+                                task=task)
+            elif result == 'abort':
+                error_handler = 'none'
+        if error_handler == 'none':
+            raise
+    else:
+        logger.info(f'Successfully executed "{command}"')
 
 
 def build(command: Command, error_handler: Optional[CommandErrorHandler] = None,
@@ -292,14 +292,14 @@ def compile_dataset(path: utils.PathLike, bins: Sequence[utils.PathLike], build_
                 extract_config_dict['transform'] = None
                 no_transform_extract = ExtractConfig(**extract_config_dict)
                 # Compile dataset without transform
-                original_decompiled_dataset = compile_dataset(path, bins, build_command,
-                                                              manage_config=manage_config,
-                                                              extract_config=no_transform_extract,
-                                                              dataset_config=dataset_config,
-                                                              repo_arg_with=repo_arg_with,
-                                                              generation_mode='path')
-                return DecompiledCodeDataset(try_transform_metadata(d, s, modified_decompiled_dataset)
-                                             for d, s in original_decompiled_dataset.values())
+            original_decompiled_dataset = compile_dataset(path, bins, build_command,
+                                                          manage_config=manage_config,
+                                                          extract_config=no_transform_extract,
+                                                          dataset_config=dataset_config,
+                                                          repo_arg_with=repo_arg_with,
+                                                          generation_mode='path')
+            return DecompiledCodeDataset(try_transform_metadata(d, s, modified_decompiled_dataset)
+                                         for d, s in original_decompiled_dataset.values())
     else:
         with manage(build_command, config=manage_config):
             return create_decompiled_dataset(path, bins, extract_config=extract_config,

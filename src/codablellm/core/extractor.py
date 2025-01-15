@@ -75,7 +75,8 @@ def save_checkpoint_file(source_code_functions: List[SourceFunction]) -> None:
 
 
 def load_checkpoint_data() -> List[SourceFunction]:
-    return utils.load_checkpoint_data(EXTRACTOR_CHECKPOINT_PREFIX, delete_on_load=True)
+    return [SourceFunction.from_json(j)  # type: ignore
+            for j in utils.load_checkpoint_data(EXTRACTOR_CHECKPOINT_PREFIX, delete_on_load=True)]
 
 
 @dataclass(frozen=True)
@@ -164,18 +165,18 @@ class _CallableExtractor(CallablePoolProgress[Tuple[Extractor, Path], Sequence[S
                 logger.info(f'Loaded {len(results)} checkpoint results')
         for functions in self.pool:
             for function in functions:
-                if self.transform:
+                if function.uid in results:
+                    logger.warning(f'Function "{function.uid}" was already extracted. Ignoring '
+                                   'duplicate entry')
+                    continue
+                elif self.transform:
                     try:
                         function = self.transform(function)
                     except Exception as e:
                         logger.warning('Error occured during transformation: '
                                        f'{type(e).__name__}: {e}')
                         continue
-                if function.uid in results:
-                    logger.warning(f'Function "{function.uid}" was already extracted. Ignoring'
-                                   'duplicate entry')
-                else:
-                    results[function.uid] = function
+                results[function.uid] = function
                 if self.checkpoint > 0 and len(results) % self.checkpoint == 0:
                     save_checkpoint_file(list(results.values()))
                     logger.info('Extraction checkpoint saved')

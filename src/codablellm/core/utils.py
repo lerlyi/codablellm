@@ -206,8 +206,8 @@ def save_checkpoint_file(prefix: str, contents: Iterable[SupportsJSON]) -> None:
     checkpoint_file.write_text(json.dumps([c.to_json() for c in contents]))
 
 
-def load_checkpoint_data(prefix: str, delete_on_load: bool = False) -> List[SupportsJSON_T]:
-    checkpoint_data: List[SupportsJSON_T] = []
+def load_checkpoint_data(prefix: str, delete_on_load: bool = False) -> List[JSONObject]:
+    checkpoint_data: List[JSONObject] = []
     checkpoint_files = get_checkpoint_files(prefix)
     for checkpoint_file in checkpoint_files:
         logger.debug(f'Loading checkpoint data from "{checkpoint_file.name}"')
