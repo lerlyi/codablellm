@@ -51,6 +51,8 @@ def add_command_args(command: Command, *args: Any) -> Command:
     Returns:
         The updated command with the appended arguments.
     '''
+    if isinstance(command, (str, bytes)):
+        command = command.split()
     return [command, *args] if not isinstance(command, List) else [*command, *args]
 
 
@@ -71,7 +73,7 @@ def execute_command(command: Command, error_handler: CommandErrorHandler = 'none
     try:
         ctx = Progress(f'{task}...') if show_progress else nullcontext()
         with ctx:
-            subprocess.run(command, capture_output=True, text=True, shell=True,
+            subprocess.run(command, capture_output=True, text=True,
                            check=True)
     except subprocess.CalledProcessError as e:
         logger.error(f'Command failed: "{command}"'

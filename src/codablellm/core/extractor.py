@@ -59,6 +59,7 @@ def get_extractor(language: str, *args: Any, **kwargs: Any) -> Extractor:
 
 def _extract(extractor_and_file: Tuple[Extractor, Path]) -> Sequence[SourceFunction]:
     extractor, file = extractor_and_file
+    logger.debug(f'Extracting {file}...')
     return extractor.extract(file)
 
 

@@ -76,6 +76,7 @@ def get_decompiler(*args: Any, **kwargs: Any) -> Decompiler:
 
 
 def _decompile(path: PathLike, *args: Any, **kwargs: Any) -> Sequence[DecompiledFunction]:
+    logger.debug(f'Decompiling {path}...')
     return get_decompiler(*args, **kwargs).decompile(path)
 
 
@@ -103,7 +104,7 @@ class _CallableDecompiler(CallablePoolProgress[PathLike, Sequence[DecompiledFunc
             # If a path is a directory, glob all child binaries
             bins.extend([b for b in path.glob('*') if is_binary(b)]
                         if path.is_dir() else [path])
-        pool = ProcessPoolProgress(_decompile, paths, Progress('Decompiling binaries...', total=len(paths)),
+        pool = ProcessPoolProgress(_decompile, bins, Progress('Decompiling binaries...', total=len(paths)),
                                    max_workers=config.max_workers,
                                    submit_args=tuple(config.decompiler_args),
                                    submit_kwargs=config.decompiler_kwargs)
