@@ -168,6 +168,8 @@ class ProcessPoolProgress(Iterator[R], Generic[I, R]):
     def __next__(self) -> R:
         if not all(f.done() for f in self._futures) or any(self._new_results):
             while not any(self._new_results):
+                if all(f.done() for f in self._futures):
+                    raise StopIteration()
                 time.sleep(0.1)
             return self._new_results.pop()
         raise StopIteration()
