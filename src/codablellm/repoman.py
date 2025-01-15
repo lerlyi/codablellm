@@ -181,7 +181,7 @@ Creates a `DecompiledCodeDataset` from a repository.
 '''
 
 
-def compile_dataset(path: utils.PathLike, bins: Sequence[utils.PathLike], build_command: Command,
+def compile_dataset(path: utils.PathLike, bins: List[utils.PathLike], build_command: Command,
                     manage_config: ManageConfig = ManageConfig(),
                     extract_config: ExtractConfig = ExtractConfig(),
                     dataset_config: DecompiledCodeDatasetConfig = DecompiledCodeDatasetConfig(),
@@ -256,16 +256,17 @@ def compile_dataset(path: utils.PathLike, bins: Sequence[utils.PathLike], build_
             }) for s in matched_source_functions.values())
         return decompiled_function, source_functions
 
-    # Add path to build/cleanup commands
-    if repo_arg_with == 'build' or repo_arg_with == 'both':
-        build_command = add_command_args(build_command, path)
-    if manage_config.cleanup_command and (repo_arg_with == 'cleanup' or repo_arg_with == 'both'):
-        cleanup_command = add_command_args(manage_config.cleanup_command, path)
-        manage_config_dict = asdict(manage_config)
-        manage_config_dict['cleanup_command'] = cleanup_command
-        manage_config = ManageConfig(**manage_config_dict)
-    else:
-        cleanup_command = manage_config.cleanup_command
+    def append_repo_path(path: utils.PathLike):
+        nonlocal repo_arg_with, manage_config, build_command
+        if repo_arg_with == 'build' or repo_arg_with == 'both':
+            build_command = add_command_args(build_command, path)
+        if manage_config.cleanup_command and (repo_arg_with == 'cleanup' or repo_arg_with == 'both'):
+            cleanup_command = add_command_args(
+                manage_config.cleanup_command, path)
+            manage_config_dict = asdict(manage_config)
+            manage_config_dict['cleanup_command'] = cleanup_command
+            manage_config = ManageConfig(**manage_config_dict)
+
     if extract_config.transform:
         # Create a modified source code dataset with transformed code
         modified_source_dataset = create_source_dataset(path,
@@ -281,9 +282,17 @@ def compile_dataset(path: utils.PathLike, bins: Sequence[utils.PathLike], build_
             logger.info('Saving backup modified source dataset as '
                         f'"{modified_source_dataset_file.name}"')
             modified_source_dataset.save_as(modified_source_dataset_file.name)
+            # Rebase paths to commands and binaries if a temporary directory was created
+            dataset_path = modified_source_dataset.get_common_directory()
+            if dataset_path != path:
+                logger.debug(f'Dataset is saved at {dataset_path}, but original repository path '
+                             f'is {path}. Rebasing paths to binaries...')
+                rebased_bins = [utils.rebase_path(b, dataset_path)
+                                for b in bins]
             # Compile repository
+            append_repo_path(dataset_path)
             with manage(build_command, config=manage_config):
-                modified_decompiled_dataset = DecompiledCodeDataset.from_source_code_dataset(modified_source_dataset, bins,
+                modified_decompiled_dataset = DecompiledCodeDataset.from_source_code_dataset(modified_source_dataset, rebased_bins,
                                                                                              config=dataset_config)
                 if generation_mode == 'temp' or generation_mode == 'path':
                     logger.debug('Removing backup modified source dataset '
@@ -303,6 +312,7 @@ def compile_dataset(path: utils.PathLike, bins: Sequence[utils.PathLike], build_
             return DecompiledCodeDataset(try_transform_metadata(d, s, modified_decompiled_dataset)
                                          for d, s in original_decompiled_dataset.values())
     else:
+        append_repo_path(path)
         with manage(build_command, config=manage_config):
             return create_decompiled_dataset(path, bins, extract_config=extract_config,
                                              dataset_config=dataset_config)

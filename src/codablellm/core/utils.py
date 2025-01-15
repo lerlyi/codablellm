@@ -322,3 +322,12 @@ def rate_limiter(max_rpm: int, max_tpm: int, model: str = "gpt-4") -> Callable[[
 
         return wrapper
     return decorator
+
+
+def rebase_path(original: PathLike, target: PathLike) -> Path:
+    original = Path(original).resolve()
+    target = Path(target).resolve()
+    original_parts = original.parts
+    relative_difference = \
+        Path(*original_parts[original_parts.index(target.name) + 1:])
+    return target / relative_difference

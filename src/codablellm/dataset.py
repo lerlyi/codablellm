@@ -100,6 +100,7 @@ class Dataset(ABC):
             raise ValueError(f'Unsupported file extension: {path.suffix}')
         logger.info(f'Successfully saved {path.name}')
 
+
 DatasetGenerationMode = Literal['path', 'temp', 'temp-append']
 '''
 How the dataset should be generated.
@@ -117,6 +118,7 @@ Generation Modes:
     code from the local repository.
         - *If `extract_config.transform` is not provided, the mode defaults to `path`*.
 '''
+
 
 @dataclass
 class SourceCodeDatasetConfig:
@@ -214,15 +216,16 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
                          'DataFrame to assume that the DataFrame is empty')
             return DataFrame()
 
-    def get_common_path(self) -> Path:
+    def get_common_directory(self) -> Path:
         '''
-        Returns the common path shared by all entries in the dataset. This typically represents 
-        the path to the local repository from which the dataset was generated.
+        Returns the common directory shared by all entries in the dataset. This typically 
+        represents the path to the local repository from which the dataset was generated.
 
         Returns:
             The common directory path for all dataset entries.
         '''
-        return Path(os.path.commonpath(f.path for f in self.values()))
+        common_path = Path(os.path.commonpath(p.path for p in self.values()))
+        return common_path if common_path.is_dir() else common_path.parent
 
     @overload
     @classmethod
@@ -466,7 +469,7 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
     def to_stripped_dataset(self) -> 'DecompiledCodeDataset':
         '''
         Converts the decompiled code dataset into a stripped decompiled code dataset.
-        
+
         The method applies the stripping process to each decompiled function in the dataset, 
         resulting in a dataset with stripped versions of the decompiled functions.
 
@@ -497,7 +500,7 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
             return cls(mappings)
 
     @classmethod
-    def from_repository(cls, path: utils.PathLike, bins: Sequence[utils.PathLike],
+    def from_repository(cls, path: utils.PathLike, bins: List[utils.PathLike],
                         extract_config: extractor.ExtractConfig = extractor.ExtractConfig(),
                         dataset_config: DecompiledCodeDatasetConfig = DecompiledCodeDatasetConfig()) -> 'DecompiledCodeDataset':
         '''
@@ -536,7 +539,7 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
 
         Returns:
             The generated dataset containing mappings of decompiled functions to their potential source code functions.
-        
+
         Raises:
             ValueError: If `bins` is an empty sequence.
         '''
