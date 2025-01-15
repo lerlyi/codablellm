@@ -76,11 +76,8 @@ class SourceFunction(Function, SupportsJSON):
         if write_back:
             logger.debug('Writing back modified definition to '
                          f'{source_function.path.name}...')
-            # TODO: swap this out with ASTEditor
-            source_code = source_function.path.read_text()
-            source_function.path.write_text(source_code[:self.start_byte] +
-                                            source_function.definition +
-                                            source_code[self.end_byte:])
+            modified_code = source_function.path.read_text().replace(self.definition, definition)
+            source_function.path.write_text(modified_code)
         return source_function
 
     def with_metadata(self, metadata: Dict[str, Any]) -> 'SourceFunction':
