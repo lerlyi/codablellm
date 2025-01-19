@@ -67,6 +67,8 @@ def execute_command(command: Command, error_handler: CommandErrorHandler = 'none
         task: An optional description of the task being performed, used for logging and displaying progress information.
         show_progress: If `True`, a progress bar is displayed while the command is executing.
     '''
+    if isinstance(command, str):
+        command = command.split()
     if not task:
         task = f'Executing: "{command}"'
     logger.info(task)

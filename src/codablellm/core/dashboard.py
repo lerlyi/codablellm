@@ -7,10 +7,12 @@ from collections.abc import Iterator
 from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor
 import logging
 from multiprocessing.context import BaseContext
+import os
 from queue import Queue
+import signal
 import time
-from types import TracebackType
-from typing import (Any, Callable, Concatenate, Generic, Iterable, List,
+from types import FrameType, TracebackType
+from typing import (Any, Callable, Concatenate, Final, Generic, Iterable, List,
                     Mapping, Optional, Tuple, Type, TypeVar, Union)
 
 from rich.console import Console
@@ -109,6 +111,15 @@ class CallablePoolProgress(ABC, Generic[I, R, T]):
 
 class ProcessPoolProgress(Iterator[R], Generic[I, R]):
 
+    MAIN_PID: Final[int] = os.getpid()
+    _ACTIVE_POOLS: Final[List['ProcessPoolProgress[Any, Any]']] = []
+    _gracefully_shutting_down: bool = False
+
+    def __new__(cls, *args: Any, **kwargs: Any) -> 'ProcessPoolProgress':
+        signal.signal(signal.SIGINT,
+                      ProcessPoolProgress._gracefully_shutdown_pools)
+        return super().__new__(cls)
+
     def __init__(self, submit: SubmitCallable[I, R], iterables: Iterable[I], progress: Progress,
                  max_workers: Optional[int] = None,
                  mp_context: Optional[BaseContext] = None,
@@ -129,6 +140,10 @@ class ProcessPoolProgress(Iterator[R], Generic[I, R]):
         self._submit_args = submit_args
         self._submit_kwargs = submit_kwargs
         self._multi_progress = False
+        ProcessPoolProgress._ACTIVE_POOLS.append(self)
+
+    def __del__(self) -> None:
+        ProcessPoolProgress._ACTIVE_POOLS.remove(self)
 
     def __enter__(self) -> 'ProcessPoolProgress[I, R]':
 
@@ -177,6 +192,18 @@ class ProcessPoolProgress(Iterator[R], Generic[I, R]):
     @property
     def errors(self) -> int:
         return self._progress.errors
+
+    @staticmethod
+    def _gracefully_shutdown_pools(signum: int, frame: Optional[FrameType]) -> None:
+        if not ProcessPoolProgress._gracefully_shutting_down:
+            if os.getpid() == ProcessPoolProgress.MAIN_PID:
+                logger.warning('Gracefully shutting down all process pools...')
+                ProcessPoolProgress._gracefully_shutting_down = True
+                for pool in ProcessPoolProgress._ACTIVE_POOLS:
+                    pool._process_pool_executor.shutdown(wait=False,
+                                                        cancel_futures=True)
+        else:
+            signal.default_int_handler(signum, frame)
 
     @staticmethod
     def multi_progress(*pools: 'CallablePoolProgress[Any, Any, Any]',
