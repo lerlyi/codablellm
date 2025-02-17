@@ -125,7 +125,7 @@ def test_decompiled_function(tmp_path: Path) -> None:
     )
     uid = SourceFunction.from_source(
         tmp_path, 'C', definition, 'addTwoNumbers', 0, 1).uid
-    decompiled_function = DecompiledFunction(uid, tmp_path, definition, 'addTwoNumbers', asm,
+    decompiled_function = DecompiledFunction(uid, tmp_path, 'addTwoNumbers', definition, asm,
                                              'x86')
     stripped_function = decompiled_function.to_stripped()
     assert 'printf' not in stripped_function.definition

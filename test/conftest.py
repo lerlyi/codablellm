@@ -74,10 +74,12 @@ def c_repository(tmp_path_factory: TempPathFactory) -> Path:
 def c_bin(tmp_path_factory: TempPathFactory) -> Path:
 
     def create_file(file: Path, func_range: range) -> None:
-        file.write_text(json.dumps([DecompiledFunction(f'{file}:{f}', file,
+        # This is what is causing the tests to break
+        file.write_text(json.dumps([DecompiledFunction(DecompiledFunction.create_uid(path, f'function{f}'),
+                                                       file,
+                                                       f'function{f}',
                                                        f'void function{f}: ' +
                                                        '\n<decompiled_def>',
-                                                       f'function{f}',
                                                        f'function{f}:' +
                                                        '\n<decompiled_asm>',
                                                        'x86_64').to_json() for f in func_range]))

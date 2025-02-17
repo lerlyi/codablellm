@@ -80,24 +80,24 @@ class Progress(BaseProgress):
                        **utils.resolve_kwargs(errors=errors))
 
 
-I = TypeVar('I')
+I_co = TypeVar('I_co', covariant=True)
 R = TypeVar('R')
 T = TypeVar('T')
 
-SubmitCallable = Callable[Concatenate[I, ...], R]
+SubmitCallable = Callable[Concatenate[I_co, ...], R]
 '''
 A callable object that is provided to `ProcessPoolExecutor.submit`.
 '''
 
 
-class CallablePoolProgress(ABC, Generic[I, R, T]):
+class CallablePoolProgress(ABC, Generic[I_co, R, T]):
 
-    def __init__(self, pool: 'ProcessPoolProgress[I, R]') -> None:
+    def __init__(self, pool: 'ProcessPoolProgress[I_co, R]') -> None:
         super().__init__()
         self._pool = pool
 
     @property
-    def pool(self) -> 'ProcessPoolProgress[I, R]':
+    def pool(self) -> 'ProcessPoolProgress[I_co, R]':
         return self._pool
 
     @abstractmethod
@@ -109,7 +109,7 @@ class CallablePoolProgress(ABC, Generic[I, R, T]):
             return self.get_results()
 
 
-class ProcessPoolProgress(Iterator[R], Generic[I, R]):
+class ProcessPoolProgress(Iterator[R], Generic[I_co, R]):
 
     MAIN_PID: Final[int] = os.getpid()
     _ACTIVE_POOLS: Final[List['ProcessPoolProgress[Any, Any]']] = []
@@ -120,7 +120,7 @@ class ProcessPoolProgress(Iterator[R], Generic[I, R]):
                       ProcessPoolProgress._gracefully_shutdown_pools)
         return super().__new__(cls)
 
-    def __init__(self, submit: SubmitCallable[I, R], iterables: Iterable[I], progress: Progress,
+    def __init__(self, submit: SubmitCallable[I_co, R], iterables: Iterable[I_co], progress: Progress,
                  max_workers: Optional[int] = None,
                  mp_context: Optional[BaseContext] = None,
                  initializer: Optional[Callable[[], object]] = None,
@@ -145,7 +145,7 @@ class ProcessPoolProgress(Iterator[R], Generic[I, R]):
     def __del__(self) -> None:
         ProcessPoolProgress._ACTIVE_POOLS.remove(self)
 
-    def __enter__(self) -> 'ProcessPoolProgress[I, R]':
+    def __enter__(self) -> 'ProcessPoolProgress[I_co, R]':
 
         def callback(future: Future[R]) -> None:
             nonlocal self

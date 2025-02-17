@@ -21,7 +21,7 @@ from codablellm.dataset import (
 )
 
 
-Command = Union[Any, List[Any]]
+Command = Union[str, Sequence[Any]]
 '''
 A CLI command.
 '''
@@ -51,9 +51,8 @@ def add_command_args(command: Command, *args: Any) -> Command:
     Returns:
         The updated command with the appended arguments.
     '''
-    if isinstance(command, (str, bytes)):
-        command = command.split()
-    return [command, *args] if not isinstance(command, List) else [*command, *args]
+    command = utils.normalize_sequence(command)
+    return [*command, *args]
 
 
 def execute_command(command: Command, error_handler: CommandErrorHandler = 'none',
@@ -67,8 +66,7 @@ def execute_command(command: Command, error_handler: CommandErrorHandler = 'none
         task: An optional description of the task being performed, used for logging and displaying progress information.
         show_progress: If `True`, a progress bar is displayed while the command is executing.
     '''
-    if isinstance(command, str):
-        command = command.split()
+    command = utils.normalize_sequence(command)
     if not task:
         task = f'Executing: "{command}"'
     logger.info(task)
@@ -183,7 +181,7 @@ Creates a `DecompiledCodeDataset` from a repository.
 '''
 
 
-def compile_dataset(path: utils.PathLike, bins: List[utils.PathLike], build_command: Command,
+def compile_dataset(path: utils.PathLike, bins: Sequence[utils.PathLike], build_command: Command,
                     manage_config: ManageConfig = ManageConfig(),
                     extract_config: ExtractConfig = ExtractConfig(),
                     dataset_config: DecompiledCodeDatasetConfig = DecompiledCodeDatasetConfig(),
@@ -246,16 +244,17 @@ def compile_dataset(path: utils.PathLike, bins: List[utils.PathLike], build_comm
             other_dataset.get(decompiled_function,  # type: ignore
                               default=(None, None))
         if matched_decompiled_function and matched_source_functions:
-            decompiled_function = decompiled_function.with_metadata({
-                **decompiled_function.metadata,
+            decompiled_function.add_metadata({
                 'transformed_assembly': matched_decompiled_function.assembly,
-                'transformed_decompiled_definition': matched_decompiled_function.definition,
+                'transformed_decompiled_definition': matched_decompiled_function.definition
             })
-            source_functions = SourceCodeDataset(s.with_metadata({
-                'transformed_source_definitions': s.definition,
-                'transformed_class_names': s.class_name,
-                **s.metadata
-            }) for s in matched_source_functions.values())
+            for source_function in matched_source_functions.values():
+                source_function.add_metadata({
+                    'transformed_source_definitions': source_function.definition,
+                    'transformed_class_names': source_function.class_name
+                })
+            source_functions = \
+                SourceCodeDataset(matched_source_functions.values())
         return decompiled_function, source_functions
 
     def append_repo_path(path: utils.PathLike):
@@ -269,6 +268,7 @@ def compile_dataset(path: utils.PathLike, bins: List[utils.PathLike], build_comm
             manage_config_dict['cleanup_command'] = cleanup_command
             manage_config = ManageConfig(**manage_config_dict)
 
+    bins = utils.normalize_sequence(bins)
     if extract_config.transform:
         # Create a modified source code dataset with transformed code
         modified_source_dataset = create_source_dataset(path,

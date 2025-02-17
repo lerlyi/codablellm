@@ -1,8 +1,8 @@
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field, fields
 import logging
 from pathlib import Path
-from typing import Any, Dict, Final, Optional, TypedDict, no_type_check
+from typing import Any, Dict, Final, Mapping, Optional, TypedDict, Union, no_type_check
 import uuid
 
 from tree_sitter import Node, Parser
@@ -14,115 +14,160 @@ from codablellm.core.utils import ASTEditor, JSONObject, SupportsJSON
 logger = logging.getLogger('codablellm')
 
 
-@dataclass(frozen=True)
-class Function:
-    uid: str
-    path: Path
-
-    @staticmethod
-    def create_uid(path: Path) -> str:
-        return path.parts[-1]
-
-
-class SourceFunctionJSONObject(TypedDict):
+class FunctionJSONObject(TypedDict):
     uid: str
     path: str
-    language: str
-    definition: str
     name: str
-    start_byte: int
-    end_byte: int
-    class_name: Optional[str]
+    definition: str
     metadata: Dict[str, Any]
 
 
 @dataclass(frozen=True)
-class SourceFunction(Function, SupportsJSON):
-    language: str
-    definition: str
+class Function(SupportsJSON):
+    uid: str
+    path: Path
     name: str
+    definition: str
+    _metadata: Dict[str, Any] = field(default_factory=dict, init=False)
+
+    @property
+    def metadata(self) -> Mapping[str, Any]:
+        return {k: v for k, v in self._metadata.items()}
+
+    def set_metadata(self, metadata: Mapping[str, Any]) -> None:
+        class_fields = {f.name for f in fields(self)}
+        for key, value in metadata.items():
+            if key in class_fields:
+                raise KeyError(f'Cannot set metadata "{key}" '
+                               'to an existing class field')
+            self._metadata[key] = value
+
+    def add_metadata(self, metadata: Mapping[str, Any]) -> None:
+        return self.set_metadata({**metadata, **self._metadata})
+
+    def remove_metadata(self, key: str) -> None:
+        del self._metadata[key]
+
+    def to_json(self) -> FunctionJSONObject:
+        return {'uid': self.uid, 'path': str(self.path), 'definition': self.definition,
+                'name': self.name, 'metadata': self._metadata}
+
+    @staticmethod
+    def create_uid(file_path: Path, name: str, repo_path: Optional[Path] = None) -> str:
+        if repo_path:
+            try:
+                relative_file_path = repo_path.name / \
+                    file_path.resolve().relative_to(repo_path.resolve())
+                scope = '::'.join(relative_file_path.parts)
+            except ValueError as e:
+                raise ValueError(f'Path to "{file_path.name}" is not in the '
+                                 f'"{repo_path.name}" repository.') from e
+        else:
+            scope = file_path.parts[-1]
+        return f'{scope}::{name}'
+
+    @staticmethod
+    def get_function_name(uid: str) -> str:
+        return uid.split('::')[-1]
+
+    @classmethod
+    def from_json(cls, json_obj: FunctionJSONObject) -> 'Function':
+        function = cls(json_obj['uid'], Path(json_obj['path']), json_obj['name'],
+                       json_obj['definition'])
+        function.set_metadata(json_obj['metadata'])
+        return function
+
+
+class SourceFunctionJSONObject(FunctionJSONObject):
+    language: str
+    start_byte: int
+    end_byte: int
+    class_name: Optional[str]
+
+
+@dataclass(frozen=True)
+class SourceFunction(Function):
+    language: str
     start_byte: int
     end_byte: int
     class_name: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.start_byte < 0:
             raise ValueError('Start byte must be a non-negative integer')
         if self.start_byte > self.end_byte:
             raise ValueError('Start byte must be less than end byte')
-        if self.metadata.keys() & asdict(self).keys():
-            v1 = self.metadata.values()
-            v2 = asdict(self).keys()
-            raise KeyError(f'Cannot set metadata to existing field')
 
     @property
     def is_method(self) -> bool:
         return self.class_name is not None
 
     def with_definition(self, definition: str, name: Optional[str] = None,
-                        write_back: bool = True,
-                        metadata: Optional[Dict[str, Any]] = None) -> 'SourceFunction':
+                        write_back: bool = True, metadata: Mapping[str, Any] = {}) -> 'SourceFunction':
         if not name:
             name = self.name
-        if not metadata:
-            metadata = self.metadata
-        uid = SourceFunction.create_uid(self.path, name,
-                                        class_name=self.class_name)
-        source_function = SourceFunction(uid, self.path, self.language, definition, name,
+            uid = self.uid
+        else:
+            uid = SourceFunction.create_uid(self.path, name,
+                                            class_name=self.class_name)
+            scope, _ = self.uid.rsplit('::', maxsplit=1)
+            uid = f'{scope}::{uid}'
+        source_function = SourceFunction(uid, self.path, name, definition,
+                                         self.language,
                                          self.start_byte,
                                          self.start_byte + len(definition),
-                                         metadata=metadata)
+                                         class_name=self.class_name)
+        source_function.set_metadata({**metadata, **self.metadata})
         if write_back:
             logger.debug('Writing back modified definition to '
                          f'{source_function.path.name}...')
-            modified_code = source_function.path.read_text().replace(self.definition, definition)
+            modified_code = source_function.path.read_text().replace(
+                self.definition, definition)
             source_function.path.write_text(modified_code)
         return source_function
 
-    def with_metadata(self, metadata: Dict[str, Any]) -> 'SourceFunction':
-        return self.with_definition(self.definition, write_back=False, metadata=metadata)
-
     def to_json(self) -> SourceFunctionJSONObject:
-        return {'uid': self.uid, 'path': str(self.path), 'language': self.language,
-                'definition': self.definition, 'name': self.name, 'start_byte': self.start_byte,
+        function_json = super().to_json()
+        return {'language': self.language, 'start_byte': self.start_byte,
                 'end_byte': self.end_byte, 'class_name': self.class_name,
-                'metadata': self.metadata}
+                **function_json}
 
     @staticmethod
-    def create_uid(path: Path, name: str, class_name: Optional[str] = None) -> str:
+    def create_uid(file_path: Path, name: str, repo_path: Optional[Path] = None,
+                   class_name: Optional[str] = None) -> str:
+        uid = Function.create_uid(file_path, name, repo_path=repo_path)
         if class_name:
-            uid = f'{Function.create_uid(path)}::{class_name}.{name}'
-        else:
-            uid = f'{Function.create_uid(path)}::{name}'
+            scope, function = uid.rsplit('::', maxsplit=1)
+            uid = f'{scope}::{class_name}.{function}'
         return uid
 
     @staticmethod
     def get_function_name(uid: str) -> str:
-        return uid.split('::')[-1].split('.')[-1]
+        return Function.get_function_name(uid).split('.')[-1]
 
     @classmethod
     def from_json(cls, json_obj: SourceFunctionJSONObject) -> 'SourceFunction':
-        return cls(json_obj['uid'], Path(json_obj['path']), json_obj['language'],
-                   json_obj['definition'], json_obj['name'], json_obj['start_byte'],
-                   json_obj['end_byte'], json_obj['class_name'], json_obj['metadata'])
+        function = cls(json_obj['uid'], Path(json_obj['path']), json_obj['name'],
+                       json_obj['definition'], json_obj['language'], json_obj['start_byte'],
+                       json_obj['end_byte'], json_obj['class_name'])
+        function.set_metadata(json_obj['metadata'])
+        return function
 
     @classmethod
-    def from_source(cls, path: Path, language: str, definition: str, name: str, start_byte: int,
-                    end_byte: int, class_name: Optional[str] = None, **metadata: Any) -> 'SourceFunction':
-        return cls(SourceFunction.create_uid(path, name, class_name=class_name), path, language,
-                   definition, name, start_byte, end_byte, class_name=class_name,
-                   metadata=metadata)
+    def from_source(cls, file_path: Path, language: str, definition: str, name: str,
+                    start_byte: int, end_byte: int, class_name: Optional[str] = None,
+                    repo_path: Optional[Path] = None,
+                    metadata: Mapping[str, Any] = {}) -> 'SourceFunction':
+        function = cls(SourceFunction.create_uid(file_path, name, repo_path=repo_path, class_name=class_name),
+                       file_path, name, definition, language, start_byte, end_byte,
+                       class_name=class_name)
+        function.set_metadata(metadata)
+        return function
 
 
-class DecompiledFunctionJSONObject(TypedDict):
-    uid: str
-    path: str
-    definition: str
-    name: str
+class DecompiledFunctionJSONObject(FunctionJSONObject):
     assembly: str
     architecture: str
-    metadata: Dict[str, Any]
 
 
 GET_C_SYMBOLS_QUERY: Final[str] = (
@@ -139,12 +184,9 @@ C_PARSER: Final[Parser] = Parser(Language(tsc.language()))
 
 
 @dataclass(frozen=True)
-class DecompiledFunction(Function, SupportsJSON):
-    definition: str
-    name: str
+class DecompiledFunction(Function):
     assembly: str
     architecture: str
-    metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_stripped(self) -> 'DecompiledFunction':
         definition = self.definition
@@ -172,32 +214,26 @@ class DecompiledFunction(Function, SupportsJSON):
         return DecompiledFunction(self.uid, self.path, definition, first_function, assembly,
                                   self.architecture)
 
-    def with_metadata(self, metadata: Dict[str, Any]) -> 'DecompiledFunction':
-        return DecompiledFunction(self.uid, self.path, self.definition, self.name, self.assembly,
-                                  self.architecture, metadata=metadata)
-
     def to_json(self) -> DecompiledFunctionJSONObject:
-        return {'uid': self.uid, 'path': str(self.path), 'definition': self.definition,
-                'name': self.name, 'assembly': self.assembly, 'architecture': self.architecture,
-                'metadata': self.metadata}
+        function_json = super().to_json()
+        return {'assembly': self.assembly, 'architecture': self.architecture,
+                **function_json}
 
     @staticmethod
-    def create_uid(path: Path, name: str) -> str:
-        return f'{Function.create_uid(path)}::{name}'
-
-    @staticmethod
-    def get_function_name(uid: str) -> str:
-        return uid.split('::')[-1]
+    def create_uid(file_path: Path, name: str, _repo_path: Optional[Path] = None) -> str:
+        return f'{file_path}::{name}'
 
     @classmethod
     def from_json(cls, json_obj: DecompiledFunctionJSONObject) -> 'DecompiledFunction':
-        return cls(json_obj['uid'], Path(json_obj['path']), json_obj['definition'],
-                   json_obj['name'], json_obj['assembly'], json_obj['architecture'],
-                   json_obj['metadata'])
+        function = cls(json_obj['uid'], Path(json_obj['path']), json_obj['name'],
+                       json_obj['definition'], json_obj['assembly'], json_obj['architecture'])
+        function.set_metadata(json_obj['metadata'])
+        return function
 
     @no_type_check
     @classmethod
     def from_decompiled_json(cls, json_obj: JSONObject) -> 'DecompiledFunction':
         return cls(DecompiledFunction.create_uid(Path(json_obj['path']), json_obj['name']),
-                   Path(json_obj['path']), json_obj['definition'],
-                   json_obj['name'], json_obj['assembly'], json_obj['architecture'])
+                   Path(json_obj['path']
+                        ), json_obj['name'], json_obj['definition'],
+                   json_obj['assembly'], json_obj['architecture'])

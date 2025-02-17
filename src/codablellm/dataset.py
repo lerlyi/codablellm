@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 import shutil
 from tempfile import TemporaryDirectory
-from typing import (Any, Dict, Iterable, Iterator, List, Literal,
+from typing import (Any, Callable, Dict, Iterable, Iterator, List, Literal,
                     Sequence, Tuple, Union, overload)
 
 from pandas import DataFrame
@@ -322,16 +322,26 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
                     original_dataset.get(transformed_function)  # type: ignore
                 if source_function:
                     # Add transformed_definition and transformed_class_name metadata to the final dataset
-                    final_functions.append(source_function.with_metadata({'transformed_definition': transformed_function.definition,
-                                                                         'transformed_class_name': transformed_function.class_name,
-                                                                          **source_function.metadata
-                                                                          }))
+                    source_function.add_metadata({'transformed_definition': transformed_function.definition,
+                                                  'transformed_class_name': transformed_function.class_name,
+                                                  })
+                    final_functions.append(source_function)
                     progress.advance()
                 else:
                     logger.error(f'Could not locate UID "{transformed_function.uid}" in original '
                                  'source code dataset')
                     progress.advance(errors=True)
             return cls(s for s in final_functions)
+
+
+def default_mapper(function: DecompiledFunction, uid: Union[SourceFunction, str]) -> bool:
+    if isinstance(uid, SourceFunction):
+        uid = uid.uid
+    return function.name == SourceFunction.get_function_name(uid)
+
+
+FunctionMapper = Callable[[DecompiledFunction,
+                           Union[str, SourceFunction]], bool]
 
 
 @dataclass(frozen=True)
@@ -362,6 +372,7 @@ class DecompiledCodeDatasetConfig:
         necessarily reflect actual stripped functions because the decompiler may still have
         access to debug symbols during the decompilation process.
     '''
+    mapper: FunctionMapper = default_mapper
 
 
 class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, SourceCodeDataset]]):
@@ -481,26 +492,29 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
     @classmethod
     def _from_dataset_and_decompiled(cls, source_dataset: SourceCodeDataset,
                                      decompiled_functions: Iterable[DecompiledFunction],
-                                     stripped: bool) -> 'DecompiledCodeDataset':
+                                     stripped: bool,
+                                     mapper: FunctionMapper) -> 'DecompiledCodeDataset':
 
-        potential_mappings: Dict[str, List[SourceFunction]] = {}
+        function_name_map: Dict[str, List[SourceFunction]] = {}
         for source_function in source_dataset.values():
-            potential_mappings.setdefault(SourceFunction.get_function_name(source_function.uid),
-                                          []).append(source_dataset[source_function.uid])
+            function_name_map.setdefault(SourceFunction.get_function_name(source_function.uid),
+                                         []).append(source_function)
         mappings: List[Tuple[DecompiledFunction, SourceCodeDataset]] = []
         with Progress('Mapping functions...'):
             for decompiled_function in decompiled_functions:
-                if decompiled_function.name in potential_mappings:
+                source_functions = [s for s in function_name_map.get(decompiled_function.name, [])
+                                    if mapper(decompiled_function, s)]
+                if source_functions:
                     if stripped:
                         decompiled_function = decompiled_function.to_stripped()
                     mappings.append((decompiled_function,
-                                    SourceCodeDataset(potential_mappings[decompiled_function.name])))
+                                    SourceCodeDataset(source_functions)))
             logger.info(f'Successfully mapped {len(mappings)} decompiled functions to '
-                        f'{sum(len(f) for f in potential_mappings.values())} source functions')
+                        f'{sum(len(f) for f in function_name_map.values())} source functions')
             return cls(mappings)
 
     @classmethod
-    def from_repository(cls, path: utils.PathLike, bins: List[utils.PathLike],
+    def from_repository(cls, path: utils.PathLike, bins: Sequence[utils.PathLike],
                         extract_config: extractor.ExtractConfig = extractor.ExtractConfig(),
                         dataset_config: DecompiledCodeDatasetConfig = DecompiledCodeDatasetConfig()) -> 'DecompiledCodeDataset':
         '''
@@ -543,6 +557,7 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
         Raises:
             ValueError: If `bins` is an empty sequence.
         '''
+        bins = utils.normalize_sequence(bins)
         if not any(bins):
             raise ValueError('Must at least specify one binary')
         # Extract source code functions and decompile binaries in parallel
@@ -555,7 +570,8 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
                                                decompile_pool,
                                                title='Generating Decompiled Code Dataset')
         source_dataset = SourceCodeDataset(source_functions)
-        return cls._from_dataset_and_decompiled(source_dataset, decompiled_functions, dataset_config.strip)
+        return cls._from_dataset_and_decompiled(source_dataset, decompiled_functions,
+                                                dataset_config.strip, dataset_config.mapper)
 
     @classmethod
     def from_source_code_dataset(cls, dataset: SourceCodeDataset, bins: Sequence[utils.PathLike],
@@ -594,4 +610,5 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
         '''
         return cls._from_dataset_and_decompiled(dataset, decompiler.decompile(bins,
                                                                               **utils.resolve_kwargs(max_workers=config.decompiler_config.max_workers)),
-                                                config.strip)
+                                                config.strip,
+                                                config.mapper)

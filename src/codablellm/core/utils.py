@@ -1,3 +1,4 @@
+from itertools import dropwhile, takewhile
 import time
 import threading
 from functools import wraps
@@ -8,8 +9,8 @@ import os
 from pathlib import Path
 from queue import Queue
 import tempfile
-from typing import (Any, Callable, Concatenate, Dict, Generator, Iterable, List, Optional, Protocol, Set,
-                    Type, TypeVar, Union)
+from typing import (Any, Callable, Concatenate, Dict, Generator, Iterable, List, Optional, Protocol, Sequence, Set,
+                    Type, TypeVar, Union, overload)
 
 import tiktoken
 from tree_sitter import Node, Parser
@@ -327,7 +328,22 @@ def rate_limiter(max_rpm: int, max_tpm: int, model: str = "gpt-4") -> Callable[[
 def rebase_path(original: PathLike, target: PathLike) -> Path:
     original = Path(original).resolve()
     target = Path(target).resolve()
-    original_parts = original.parts
-    relative_difference = \
-        Path(*original_parts[original_parts.index(target.name) + 1:])
-    return target / relative_difference
+    shared_path = Path(*[p for p, _ in takewhile(lambda x: x[0] == x[1],
+                                                 zip(original.parts, target.parts))])
+    different_path = Path(*[p for _, p in dropwhile(lambda x: x[0] == x[1],
+                                                    zip(original.parts, target.parts))])
+    return shared_path / different_path
+
+
+@overload
+def normalize_sequence(value: Sequence[T]) -> Sequence[T]: ...
+
+
+@overload
+def normalize_sequence(value: str) -> List[str]: ...
+
+
+def normalize_sequence(value: Union[str, Sequence[T]]) -> Union[Sequence[T], List[str]]:
+    if isinstance(value, str):
+        return value.split()
+    return value

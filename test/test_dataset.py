@@ -19,12 +19,17 @@ def test_save_dataset(tmp_path: Path) -> None:
 
 def test_source_dataset(c_repository: Path) -> None:
     dataset = SourceCodeDataset.from_repository(c_repository,
-                                                SourceCodeDatasetConfig(generation_mode='path'))
+                                                SourceCodeDatasetConfig(
+                                                    generation_mode='path',
+                                                    extract_config=ExtractConfig(
+                                                        extract_as_repo=False
+                                                    )
+                                                ))
     temp_dataset = SourceCodeDataset.from_repository(c_repository)
     assert len(dataset) == 8
     assert len(temp_dataset) == 8
-    assert dataset.get_common_path() == c_repository
-    assert temp_dataset.get_common_path() == c_repository
+    assert dataset.get_common_directory() == c_repository
+    assert temp_dataset.get_common_directory() == c_repository
     assert dataset.get('file1.c::function1') is not None
     functions = dataset.values()
     assert dataset.to_df().to_dict() == DataFrame({'path': [str(f.path) for f in functions],

@@ -41,7 +41,7 @@ def set_extractors(extractors: Mapping[str, str]) -> None:
 class Extractor(ABC):
 
     @abstractmethod
-    def extract(self, path: PathLike) -> Sequence[SourceFunction]:
+    def extract(self, file_path: PathLike, repo_path: Optional[PathLike] = None) -> Sequence[SourceFunction]:
         pass
 
     @abstractmethod
@@ -57,10 +57,10 @@ def get_extractor(language: str, *args: Any, **kwargs: Any) -> Extractor:
     raise ExtractorNotFound(f'Unsupported language: {language}')
 
 
-def _extract(extractor_and_file: Tuple[Extractor, Path]) -> Sequence[SourceFunction]:
-    extractor, file = extractor_and_file
+def _extract(extractor_and_paths: Tuple[Extractor, Path, Optional[Path]]) -> Sequence[SourceFunction]:
+    extractor, file, repo = extractor_and_paths
     logger.debug(f'Extracting {file}...')
-    return extractor.extract(file)
+    return extractor.extract(file, repo_path=repo)
 
 
 EXTRACTOR_CHECKPOINT_PREFIX: Final[str] = 'codablellm_extractor'
@@ -80,15 +80,19 @@ def load_checkpoint_data() -> List[SourceFunction]:
             for j in utils.load_checkpoint_data(EXTRACTOR_CHECKPOINT_PREFIX, delete_on_load=True)]
 
 
+Transform = Callable[[SourceFunction], SourceFunction]
+
+
 @dataclass(frozen=True)
 class ExtractConfig:
     max_workers: Optional[int] = None
     accurate_progress: bool = True
-    transform: Optional[Callable[[SourceFunction], SourceFunction]] = None
+    transform: Optional[Transform] = None
     exclusive_subpaths: Set[Path] = field(default_factory=set)
     exclude_subpaths: Set[Path] = field(default_factory=set)
     checkpoint: int = 10
     use_checkpoint: bool = True
+    extract_as_repo: bool = True
     extractor_args: Dict[str, Sequence[Any]] = field(default_factory=dict)
     extractor_kwargs: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
@@ -108,7 +112,7 @@ class ExtractConfig:
                 raise ValueError(f'"{extractor}" is not a known extractor')
 
 
-class _CallableExtractor(CallablePoolProgress[Tuple[Extractor, Path], Sequence[SourceFunction],
+class _CallableExtractor(CallablePoolProgress[Tuple[Extractor, Path, Optional[Path]], Sequence[SourceFunction],
                                               List[SourceFunction]]):
 
     def __init__(self, path: PathLike, config: ExtractConfig) -> None:
@@ -133,26 +137,30 @@ class _CallableExtractor(CallablePoolProgress[Tuple[Extractor, Path], Sequence[S
             raise ValueError('All subpaths must be relative to the '
                              'repository.')
 
-        def generate_extractors_and_files(path: PathLike, extractor_args: Dict[str, Sequence[Any]],
-                                          extractor_kwargs: Dict[str, Dict[str, Any]]) -> Generator[Tuple[Extractor, Path], None, None]:
+        def generate_extractors_and_paths(path: PathLike, extract_as_repo: bool,
+                                          extractor_args: Dict[str, Sequence[Any]],
+                                          extractor_kwargs: Dict[str, Dict[str, Any]]) -> Generator[Tuple[Extractor, Path, Optional[Path]], None, None]:
+            repo_path = None if not extract_as_repo else Path(path)
             for language in EXTRACTORS:
                 extractor = get_extractor(language, *extractor_args.get(language, []),
                                           **extractor_kwargs.get(language, {}))
                 for file in extractor.get_extractable_files(path):
                     if not any(is_relative_to(p, file) for p in config.exclude_subpaths) \
                             or any(is_relative_to(p, file) for p in config.exclusive_subpaths):
-                        yield extractor, file
+                        yield extractor, file, repo_path
 
         if config.accurate_progress:
-            extractors_and_files = list(generate_extractors_and_files(path, config.extractor_args,
+            extractors_and_paths = list(generate_extractors_and_paths(path, config.extract_as_repo,
+                                                                      config.extractor_args,
                                                                       config.extractor_kwargs))
-            total = len(extractors_and_files)
+            total = len(extractors_and_paths)
             logger.info(f'Located {total} extractable source code files')
         else:
-            extractors_and_files = generate_extractors_and_files(path, config.extractor_args,
+            extractors_and_paths = generate_extractors_and_paths(path, config.extract_as_repo,
+                                                                 config.extractor_args,
                                                                  config.extractor_kwargs)
             total = None
-        pool = ProcessPoolProgress(_extract, extractors_and_files, Progress('Extracting functions...',
+        pool = ProcessPoolProgress(_extract, extractors_and_paths, Progress('Extracting functions...',
                                                                             total=total),
                                    max_workers=config.max_workers)
         super().__init__(pool)

@@ -156,7 +156,8 @@ GENERATION_MODE: Final[GenerationMode] = Option(DEFAULT_SOURCE_CODE_DATASET_CONF
                                                 help='Specify how the dataset should be '
                                                 'generated from the repository.')
 GHIDRA: Final[Optional[Path]] = Option(Ghidra.get_path(), envvar=Ghidra.ENVIRON_KEY, dir_okay=False,
-                                       callback=lambda v: Ghidra.set_path(v) if v else None,
+                                       callback=lambda v: Ghidra.set_path(
+                                           v) if v else None,
                                        help="Path to Ghidra's analyzeHeadless command.")
 GIT: Final[bool] = Option(False, '--git / --archive', help='Determines whether --url is a Git '
                           'download URL or a tarball/zipfile download URL.')
@@ -183,14 +184,13 @@ VERBOSE: Final[bool] = Option(False, '--verbose', '-v',
                               help='Display verbose logging information.')
 VERSION: Final[bool] = Option(False, '--version', is_eager=True, callback=show_version,
                               help='Shows the installed version of codablellm and exit.')
-TRANSFORM: Final[Optional[Callable[[SourceFunction],
-                                   SourceFunction]]] = Option(DEFAULT_SOURCE_CODE_DATASET_CONFIG.extract_config.transform,
-                                                              '--transform', '-t',
-                                                              metavar='CALLABLEPATH',
-                                                              help='Transformation function to use '
-                                                              'when extracting source code '
-                                                              'functions.',
-                                                              parser=parse_transform)
+TRANSFORM: Final[Optional[codablellm.extractor.Transform]] = Option(DEFAULT_SOURCE_CODE_DATASET_CONFIG.extract_config.transform,
+                                                                    '--transform', '-t',
+                                                                    metavar='CALLABLEPATH',
+                                                                    help='Transformation function to use '
+                                                                    'when extracting source code '
+                                                                    'functions.',
+                                                                    parser=parse_transform)
 REPO_BUILD_ARG: Final[bool] = Option(False, '--repo-build-arg', '-B',
                                      help='Will append the build command with the path of the '
                                      "repository's path as the first argument for the command "
@@ -234,8 +234,7 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
             repo_build_arg: bool = REPO_BUILD_ARG,
             repo_cleanup_arg: bool = REPO_CLEANUP_ARG,
             strip: bool = STRIP,
-            transform: Optional[Callable[[SourceFunction],
-                                         SourceFunction]] = TRANSFORM,
+            transform: Optional[codablellm.extractor.Transform] = TRANSFORM,
             use_checkpoint: Optional[bool] = USE_CHECKPOINT,
             url: str = URL, verbose: bool = VERBOSE, version: bool = VERSION) -> None:
     '''
