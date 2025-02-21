@@ -241,7 +241,7 @@ def compile_dataset(path: utils.PathLike, bins: Sequence[utils.PathLike], build_
                                other_dataset: DecompiledCodeDataset) -> Tuple[DecompiledFunction, SourceCodeDataset]:
         # Try to add transformed metadata to the decompiled function if it's in the other dataset
         matched_decompiled_function, matched_source_functions = \
-            other_dataset.get(decompiled_function,  # type: ignore
+            other_dataset.get(decompiled_function,
                               default=(None, None))
         if matched_decompiled_function and matched_source_functions:
             decompiled_function.add_metadata({

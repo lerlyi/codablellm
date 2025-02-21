@@ -12,8 +12,9 @@ from pathlib import Path
 import shutil
 from tempfile import TemporaryDirectory
 from typing import (Any, Callable, Dict, Iterable, Iterator, List, Literal,
-                    Sequence, Tuple, Union, overload)
+                    Sequence, Tuple, TypeVar, Union, overload)
 
+from numpy import isin
 from pandas import DataFrame
 
 from codablellm.core import decompiler, extractor, utils
@@ -169,6 +170,9 @@ class SourceCodeDatasetConfig:
             self.generation_mode = 'path'
 
 
+T = TypeVar('T')
+
+
 class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
     '''
     A source code dataset.
@@ -199,6 +203,12 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
 
     def __len__(self) -> int:
         return len(self._mapping)
+
+    def get(self, key: Union[str, SourceFunction], default: T = None) -> Union[SourceFunction, T]:
+        try:
+            return self[key]
+        except KeyError:
+            return default
 
     def to_df(self) -> DataFrame:
         function_dicts: List[Dict[str, Any]] = []
@@ -409,6 +419,12 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
 
     def __len__(self) -> int:
         return len(self._mapping)
+
+    def get(self, key: Union[str, DecompiledFunction], default: T = None) -> Union[Tuple[DecompiledFunction, SourceCodeDataset], T]:
+        try:
+            return self[key]
+        except KeyError:
+            return default
 
     def to_df(self) -> DataFrame:
         function_dicts: List[Dict[str, Any]] = []
