@@ -11,13 +11,6 @@ jobs:
     steps:
       - name: Checkout the repository
         uses: actions/checkout@v4
-    
-      - name: Verify Authentication with GitHub API
-        env:
-            MIRROR_GITHUB_PAT: ${{ secrets.MIRROR_GITHUB_PAT }}
-        run: |
-            echo "Testing GitHub authentication..."
-            curl -H "Authorization: token $MIRROR_GITHUB_PAT" https://api.github.com/repos/SecureAIAutonomyLab/codablellm-mirror
 
       - name: Mirror repository to another private GitHub repo
         env:
@@ -27,7 +20,7 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
           # Define the target repository
-          TARGET_REPO="https://$MIRROR_GITHUB_PAT@github.com/SecureAIAutonomyLab/codablellm-mirror.git"
+          TARGET_REPO="https://x-access-token:$MIRROR_GITHUB_PAT@github.com/SecureAIAutonomyLab/codablellm-mirror.git"
 
           # Initialize a new empty repository
           git remote add mirror $TARGET_REPO
