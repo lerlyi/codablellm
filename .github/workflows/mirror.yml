@@ -1,0 +1,30 @@
+name: Mirror Repository to SecureAIAutonomyLab
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v4
+
+      - name: Mirror repository to another private GitHub repo
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Define the target repository
+          TARGET_REPO="https://$MIRROR_GITHUB_PAT@github.com/SecureAIAutonomyLab/codablellm-mirror.git"
+
+          # Initialize a new empty repository
+          git remote add mirror $TARGET_REPO
+          git fetch --unshallow || true
+
+          # Push all branches and tags
+          git push --mirror mirror
+        env:
+          MIRROR_GITHUB_PAT: ${{ secrets.MIRROR_GITHUB_PAT }}
