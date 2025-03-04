@@ -20,7 +20,7 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
           # Define the target repository
-          TARGET_REPO="https://x-access-token:$MIRROR_GITHUB_PAT@github.com/SecureAIAutonomyLab/codablellm-mirror.git"
+          TARGET_REPO="https://${{env.MIRROR_GITHUB_PAT}}@github.com/SecureAIAutonomyLab/codablellm-mirror.git"
 
           # Initialize a new empty repository
           git remote add mirror $TARGET_REPO
