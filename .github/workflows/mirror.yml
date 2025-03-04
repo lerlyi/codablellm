@@ -11,7 +11,15 @@ jobs:
     steps:
       - name: Checkout the repository
         uses: actions/checkout@v4
-    
+
+      - name: Reset Git Authentication
+        env:
+            MIRROR_GITHUB_PAT: ${{ secrets.MIRROR_GITHUB_PAT }}
+        run: |
+          git credential reject https://github.com
+          echo "https://${MIRROR_GITHUB_PAT}@github.com" > ~/.git-credentials
+          git config --global credential.helper store
+
       - name: Mirror repository to another private GitHub repo
         env:
             MIRROR_GITHUB_PAT: ${{ secrets.MIRROR_GITHUB_PAT }}
@@ -19,4 +27,12 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-          git push --mirror "https://${MIRROR_GITHUB_PAT}@github.com/SecureAIAutonomyLab/codablellm-mirror.git"
+          # Define the target repository
+          TARGET_REPO="https://$MIRROR_GITHUB_PAT@github.com/SecureAIAutonomyLab/codablellm-mirror.git"
+
+          # Initialize a new empty repository
+          git remote add mirror $TARGET_REPO
+          git fetch --unshallow || true
+          
+          # Push all branches and tags
+          git push --mirror mirror
