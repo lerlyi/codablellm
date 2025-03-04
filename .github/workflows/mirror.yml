@@ -13,14 +13,12 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Mirror repository to another private GitHub repo
-        env:
-            MIRROR_GITHUB_PAT: ${{ secrets.MIRROR_GITHUB_PAT }}
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
           # Define the target repository
-          TARGET_REPO="https://$MIRROR_GITHUB_PAT@github.com/SecureAIAutonomyLab/codablellm-mirror.git"
+          TARGET_REPO="https://${{ secrets.MIRROR_GITHUB_PAT }}@github.com/SecureAIAutonomyLab/codablellm-mirror.git"
 
           # Initialize a new empty repository
           git remote add mirror $TARGET_REPO
