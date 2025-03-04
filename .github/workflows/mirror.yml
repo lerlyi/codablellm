@@ -19,12 +19,4 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Define the target repository
-          TARGET_REPO="https://$MIRROR_GITHUB_PAT@github.com/SecureAIAutonomyLab/codablellm-mirror.git"
-
-          # Initialize a new empty repository
-          git remote add mirror $TARGET_REPO
-          git fetch --unshallow || true
-          echo "Full Target Repo URL: https://$MIRROR_GITHUB_PAT@github.com/SecureAIAutonomyLab/codablellm-mirror.git"
-          # Push all branches and tags
-          git push --mirror mirror
+          git push --mirror "https://${MIRROR_GITHUB_PAT}@github.com/SecureAIAutonomyLab/codablellm-mirror.git"
