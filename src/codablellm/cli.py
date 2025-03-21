@@ -12,14 +12,14 @@ from click import BadParameter
 from rich import print
 from rich.prompt import Confirm
 from typer import Argument, Exit, Option, prompt, Typer
-from typing import Callable, Dict, Final, List, Optional, Tuple
+from typing import Any, Callable, Dict, Final, List, Optional, Tuple
 
 import codablellm
 from codablellm.core import downloader
 from codablellm.core.decompiler import DecompileConfig
 from codablellm.core.extractor import ExtractConfig
-from codablellm.core.function import SourceFunction
-from codablellm.dataset import DecompiledCodeDatasetConfig, SourceCodeDatasetConfig
+from codablellm.core.function import DecompiledFunction, SourceFunction
+from codablellm.dataset import DecompiledCodeDatasetConfig, Mapper, SourceCodeDatasetConfig
 from codablellm.decompilers.ghidra import Ghidra
 from codablellm.repoman import ManageConfig
 
@@ -70,13 +70,21 @@ def validate_dataset_format(path: Path) -> Path:
 # Argument/option parsers
 
 
-def parse_transform(callable_path: str) -> Callable[[SourceFunction], SourceFunction]:
-    module_path, callable_name = callable_path.rsplit('.', 1)
+def dynamic_import(path: str) -> Any:
+    module_path, callable_name = path.rsplit('.', 1)
     try:
         module = importlib.import_module(module_path)
         return getattr(module, callable_name)
     except (ModuleNotFoundError, AttributeError) as e:
-        raise BadParameter(f'Cannot find "{callable_path}"') from e
+        raise BadParameter(f'Cannot find "{path}"') from e
+
+
+def parse_transform(callable_path: str) -> Callable[[SourceFunction], SourceFunction]:
+    return dynamic_import(callable_path)
+
+
+def parse_mapper(callable_path: str) -> Mapper:
+    return dynamic_import(callable_path)
 
 # Miscellaneous argument/option callbacks
 
@@ -171,6 +179,11 @@ CLEANUP_ERROR_HANDLING: Final[CommandErrorHandler] = Option(DEFAULT_MANAGE_CONFI
                                                             'during the cleanup process. Options include '
                                                             'ignoring the error, raising an exception, or '
                                                             'prompting the user for manual intervention.')
+MAPPER: Final[str] = Option('codablellm.dataset.default_mapper',
+                            metavar='CALLABLEPATH',
+                            help='Mapper to use for mapping decompiled functions to source '
+                            'code functions.',
+                            parser=parse_mapper)
 MAX_DECOMPILER_WORKERS: Final[Optional[int]] = Option(DEFAULT_DECOMPILED_CODE_DATASET_CONFIG.decompiler_config.max_workers,
                                                       min=1,
                                                       help='Maximum number of workers to use to '
@@ -229,6 +242,7 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
                                        Path]] = EXTRACTORS,
             generation_mode: GenerationMode = GENERATION_MODE,
             git: bool = GIT, ghidra: Optional[Path] = GHIDRA,
+            mapper: str = MAPPER,
             max_decompiler_workers: Optional[int] = MAX_DECOMPILER_WORKERS,
             max_extractor_workers: Optional[int] = MAX_EXTRACTOR_WORKERS,
             repo_build_arg: bool = REPO_BUILD_ARG,
@@ -300,7 +314,8 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
             strip=strip,
             decompiler_config=DecompileConfig(
                 max_workers=max_decompiler_workers
-            )
+            ),
+            mapper=parse_mapper(mapper),
         )
         if not build:
             dataset = codablellm.create_decompiled_dataset(repo, bins,

@@ -12,7 +12,7 @@ from rich.progress import BarColumn, DownloadColumn, Progress, SpinnerColumn, Te
 from typing import Optional, Tuple
 
 
-logger = logging.getLogger('cfmapper')
+logger = logging.getLogger('codablellm')
 
 
 def decompress(url: str, path: Path, checksum: Optional[Tuple[str, str]] = None,

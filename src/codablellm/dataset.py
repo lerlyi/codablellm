@@ -14,7 +14,6 @@ from tempfile import TemporaryDirectory
 from typing import (Any, Callable, Dict, Iterable, Iterator, List, Literal,
                     Sequence, Tuple, TypeVar, Union, overload)
 
-from numpy import isin
 from pandas import DataFrame
 
 from codablellm.core import decompiler, extractor, utils
@@ -119,6 +118,8 @@ Generation Modes:
     code from the local repository.
         - *If `extract_config.transform` is not provided, the mode defaults to `path`*.
 '''
+
+# TODO: see if there's a way to make this a frozen dataclass
 
 
 @dataclass
@@ -350,8 +351,7 @@ def default_mapper(function: DecompiledFunction, uid: Union[SourceFunction, str]
     return function.name == SourceFunction.get_function_name(uid)
 
 
-FunctionMapper = Callable[[DecompiledFunction,
-                           Union[str, SourceFunction]], bool]
+Mapper = Callable[[DecompiledFunction, SourceFunction], bool]
 
 
 @dataclass(frozen=True)
@@ -382,7 +382,7 @@ class DecompiledCodeDatasetConfig:
         necessarily reflect actual stripped functions because the decompiler may still have
         access to debug symbols during the decompilation process.
     '''
-    mapper: FunctionMapper = default_mapper
+    mapper: Mapper = default_mapper
 
 
 class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, SourceCodeDataset]]):
@@ -509,7 +509,7 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
     def _from_dataset_and_decompiled(cls, source_dataset: SourceCodeDataset,
                                      decompiled_functions: Iterable[DecompiledFunction],
                                      stripped: bool,
-                                     mapper: FunctionMapper) -> 'DecompiledCodeDataset':
+                                     mapper: Mapper) -> 'DecompiledCodeDataset':
 
         function_name_map: Dict[str, List[SourceFunction]] = {}
         for source_function in source_dataset.values():
