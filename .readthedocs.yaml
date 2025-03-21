@@ -5,12 +5,12 @@ build:
   tools:
     python: "3.8"
 
-python:
-  install:
-    - requirements: docs/requirements.txt
+# python:
+#   install:
+#     - requirements: docs/requirements.txt
 
 conda:
-  environment: environment.yml
+  environment: docs/environment.yaml
 
 mkdocs:
   configuration: mkdocs.yaml
