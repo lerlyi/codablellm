@@ -9,5 +9,8 @@ python:
   install:
     - requirements: docs/requirements.txt
 
+conda:
+  environment: environment.yml
+
 mkdocs:
   configuration: mkdocs.yaml
