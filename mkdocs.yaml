@@ -24,5 +24,3 @@ markdown_extensions:
   - pymdownx.snippets
   - pymdownx.superfences
 site_url: !ENV READTHEDOCS_CANONICAL_URL
-extra_javascript:
-    - javascript/readthedocs.js
