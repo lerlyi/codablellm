@@ -1,3 +1,7 @@
+'''
+Support for the Ghidra decompiler.
+'''
+
 import json
 import logging
 import os
