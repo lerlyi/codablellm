@@ -58,6 +58,15 @@ class Function(SupportsJSON):
         return {k: v for k, v in self._metadata.items()}
 
     def set_metadata(self, metadata: Mapping[str, Any]) -> None:
+        '''
+        Sets the metadata associated with the function. This will overwrite any existing metadata.
+
+        Parameters:
+            metadata: A mapping containing the metadata to associate with the function.
+
+        Raises:
+            KeyError: If the metadata contains a key that is the same as an existing class field.
+        '''
         class_fields = {f.name for f in fields(self)}
         for key, value in metadata.items():
             if key in class_fields:
@@ -66,6 +75,12 @@ class Function(SupportsJSON):
             self._metadata[key] = value
 
     def add_metadata(self, metadata: Mapping[str, Any]) -> None:
+        '''
+        Adds metadata to the function. This will overwrite any existing metadata with the same key.
+
+        Parameters:
+            metadata: A mapping containing the metadata to add to the function.
+        '''
         return self.set_metadata({**metadata, **self._metadata})
 
     def remove_metadata(self, key: str) -> None:
@@ -83,6 +98,24 @@ class Function(SupportsJSON):
 
     @staticmethod
     def create_uid(file_path: Path, name: str, repo_path: Optional[Path] = None) -> str:
+        '''
+        Creates a unique identifier for a function.
+
+        The UID is constructed based on the function's file path and name. If a repository path is
+        provided, the UID uses the file's relative path from the repository root to ensure
+        precision across different subdirectories.
+
+        Parameters:
+            file_path: The path to the source code file containing the function definition.
+            name: The name of the function.
+            repo_path: Optional repository root path to calculate the relative file path. If provided, the UID is constructed using the relative path from the repository root.
+
+        Returns:
+            A string UID in the format of `<relative_path_or_filename>::<function_name>`.
+
+        Raises:
+            ValueError: If the given `file_path` is not a subpath of `repo_path`.
+        '''
         if repo_path:
             try:
                 relative_file_path = repo_path.name / \
@@ -97,6 +130,15 @@ class Function(SupportsJSON):
 
     @staticmethod
     def get_function_name(uid: str) -> str:
+        '''
+        Extracts the function name from a UID.
+
+        Parameters:
+            uid: The unique identifier of the function.
+
+        Returns:
+            The function name.
+        '''
         return uid.split('::')[-1]
 
     @classmethod
@@ -116,10 +158,25 @@ class SourceFunctionJSONObject(FunctionJSONObject):
 
 @dataclass(frozen=True)
 class SourceFunction(Function):
+    '''
+    A subroutine extracted from source code.
+    '''
     language: str
+    '''
+    The programming language of the source code.
+    '''
     start_byte: int
+    '''
+    The starting byte offset of the function definition in the source code file.
+    '''
     end_byte: int
+    '''
+    The ending byte offset of the function definition in the source code file.
+    '''
     class_name: Optional[str] = None
+    '''
+    The name of the class containing the function, if applicable.
+    '''
 
     def __post_init__(self) -> None:
         if self.start_byte < 0:
@@ -129,10 +186,31 @@ class SourceFunction(Function):
 
     @property
     def is_method(self) -> bool:
+        '''
+        Indicates whether the function is a method of a class.
+
+        Returns:
+            `True` if the function is defined within a class.
+        '''
         return self.class_name is not None
 
     def with_definition(self, definition: str, name: Optional[str] = None,
                         write_back: bool = True, metadata: Mapping[str, Any] = {}) -> 'SourceFunction':
+        '''
+        Creates a new `SourceFunction` instance with an updated definition and optional new name.
+
+        This method generates a new UID if a new name is provided, merges existing and new metadata,  
+        and optionally writes the updated definition back to the source file.
+
+        Parameters:
+            definition: The new function definition to use.
+            name: Optional new function name. If not provided, retains the current function name and UID.
+            write_back: If `True`, writes the updated definition to the original source file.
+            metadata: Additional metadata to merge with the existing function metadata.
+
+        Returns:
+            A new `SourceFunction` instance with the updated definition and metadata.
+        '''
         if not name:
             name = self.name
             uid = self.uid
@@ -164,6 +242,21 @@ class SourceFunction(Function):
     @staticmethod
     def create_uid(file_path: Path, name: str, repo_path: Optional[Path] = None,
                    class_name: Optional[str] = None) -> str:
+        '''
+        Creates a unique identifier (UID) for a source function to be used as a dataset key.
+
+        The UID is based on the function's file path and name, and optionally includes the class name 
+        if the function is a method. If a repository path is provided, the UID uses the relative file path.
+
+        Parameters:
+            file_path: The full file path of the function definition.
+            name: The name of the function.
+            repo_path: Optional repository root path for relative path calculation.
+            class_name: The class name to include in the UID if the function is a method.
+
+        Returns:
+            A UID string in the format: `<relative_path_or_filename>::<class_name>.<function_name>` if `class_name` is provided, otherwise `<relative_path_or_filename>::<function_name>`.
+        '''
         uid = Function.create_uid(file_path, name, repo_path=repo_path)
         if class_name:
             scope, function = uid.rsplit('::', maxsplit=1)
@@ -172,6 +265,15 @@ class SourceFunction(Function):
 
     @staticmethod
     def get_function_name(uid: str) -> str:
+        '''
+        Extracts the function name from a UID, removing any class name prefix.
+
+        Parameters:
+            uid: The unique identifier of the function.
+
+        Returns:
+            The function name.
+        '''
         return Function.get_function_name(uid).split('.')[-1]
 
     @classmethod
@@ -187,6 +289,23 @@ class SourceFunction(Function):
                     start_byte: int, end_byte: int, class_name: Optional[str] = None,
                     repo_path: Optional[Path] = None,
                     metadata: Mapping[str, Any] = {}) -> 'SourceFunction':
+        '''
+        Creates a `SourceFunction` instance from source code information.
+
+        Parameters:
+            file_path: The file path where the function is defined.
+            language: The programming language of the function.
+            definition: The full source code of the function definition.
+            name: The function name.
+            start_byte: The starting byte offset of the function in the source file.
+            end_byte: The ending byte offset of the function in the source file.
+            class_name: Optional name of the class containing the function.
+            repo_path: Optional repository root path for relative UID creation.
+            metadata: Additional metadata to associate with the function.
+
+        Returns:
+            A `SourceFunction` instance populated with the given information and metadata.
+        '''
         function = cls(SourceFunction.create_uid(file_path, name, repo_path=repo_path, class_name=class_name),
                        file_path, name, definition, language, start_byte, end_byte,
                        class_name=class_name)
@@ -209,15 +328,42 @@ GET_C_SYMBOLS_QUERY: Final[str] = (
     '    function: (identifier) @function.symbols'
     ')'
 )
+'''
+Tree-sitter query used to extract all C symbols from a function definition.
+'''
+
 C_PARSER: Final[Parser] = Parser(Language(tsc.language()))
+'''
+Tree-sitter parser for C code.
+'''
 
 
 @dataclass(frozen=True)
 class DecompiledFunction(Function):
+    '''
+    A decompiled function extracted from a compiled binary file.
+    '''
     assembly: str
+    '''
+    Assembly code of the function.
+    '''
     architecture: str
+    '''
+    The architecture of the binary file from which the function was decompiled.
+    '''
 
     def to_stripped(self) -> 'DecompiledFunction':
+        '''
+        Creates a stripped version of the decompiled function with anonymized symbol names.
+
+        This method replaces all function symbols in both the function definition and assembly code
+        with generated placeholders (e.g., `sub_<uuid>`), ensuring sensitive or original identifiers
+        are removed. The resulting `DecompiledFunction` has an updated definition, stripped function name, 
+        and modified assembly code.
+
+        Returns:
+            A new `DecompiledFunction` instance with stripped symbols and updated assembly.
+        '''
         definition = self.definition
         assembly = self.assembly
         symbol_mapping: Dict[str, str] = {}
