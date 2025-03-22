@@ -1,3 +1,10 @@
+'''
+Module containing functions for decompiling binaries.
+
+This module manages decompiler registration and configuration, allowing `codablellm` 
+to use different backends for binary decompilation.
+'''
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 import importlib
@@ -82,9 +89,21 @@ def _decompile(path: PathLike, *args: Any, **kwargs: Any) -> Sequence[Decompiled
 
 @dataclass(frozen=True)
 class DecompileConfig:
+    '''
+    Configuration for decompiling binaries.
+    '''
     max_workers: Optional[int] = None
+    '''
+    Maximum number of binaries to decompile in parallel.
+    '''
     decompiler_args: Sequence[Any] = field(default_factory=list)
+    '''
+    Positional arguments to pass to the decompiler's `__init__` method.
+    '''
     decompiler_kwargs: Dict[str, Any] = field(default_factory=dict)
+    '''
+    Keyword arguments to pass to the decompiler's `__init__` method.
+    '''
 
     def __post_init__(self) -> None:
         if self.max_workers and self.max_workers < 1:
@@ -130,11 +149,15 @@ def decompile(paths: Union[PathLike, Sequence[PathLike]],
               config: DecompileConfig = DecompileConfig(),
               as_callable_pool: bool = False) -> Union[List[DecompiledFunction], _CallableDecompiler]:
     '''
-    Decompiles and extracts decompiled functions from a path or sequence of paths.
+    Decompiles binaries and extracts decompiled functions from the given path or list of paths.
 
-    This method scans the specified repository and generates a dataset of source code functions 
-    based on the provided configuration. Optionally, it can return a callable pool that allows 
-    deferred execution of the dataset generation process.
+    Parameters:
+        paths: A single path or sequence of paths pointing to binary files or directories containing binaries.
+        config: Decompilation configuration options.
+        as_callable_pool: If `True`, returns a callable pool for deferred execution, typically used for progress bar handling or asynchronous processing.
+
+    Returns:
+        Either a list of `DecompiledFunction` instances or a `_CallableDecompiler` for deferred execution.
     '''
     decompiler = _CallableDecompiler(paths, config)
     if as_callable_pool:

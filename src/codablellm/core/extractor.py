@@ -1,3 +1,9 @@
+'''
+Module containing functions for managing and registering source code extractors.
+
+Source code extractors are responsible for parsing and extracting function definitions from different programming languages.
+'''
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 import importlib
@@ -22,6 +28,14 @@ logger = logging.getLogger('codablellm')
 
 def add_extractor(language: str, class_path: str,
                   order: Optional[Literal['first', 'last']] = None) -> None:
+    '''
+    Registers a new source code extractor for a given language.
+
+    Parameters:
+        language: The name of the language (e.g., "C", "Python") to associate with the extractor.
+        class_path: The full import path to the extractor class.
+        order: Optional order for insertion. If 'first', prepends the extractor; if 'last', appends it.
+    '''
     EXTRACTORS[language] = class_path
     if order:
         logger.info('Prepended ' if order == 'first' else 'Appended '
@@ -32,6 +46,12 @@ def add_extractor(language: str, class_path: str,
 
 
 def set_extractors(extractors: Mapping[str, str]) -> None:
+    '''
+    Replaces all existing source code extractors with a new set.
+
+    Parameters:
+        extractors: A mapping from language names to extractor class paths.
+    '''
     EXTRACTORS.clear()
     logger.info('Source code extractors cleared')
     for language, class_path in extractors.items():
@@ -39,17 +59,56 @@ def set_extractors(extractors: Mapping[str, str]) -> None:
 
 
 class Extractor(ABC):
+    '''
+    Abstract base class for source code extractors.
+
+    Extractors are responsible for parsing source code files and returning extracted function
+    definitions as `SourceFunction` instances.
+    '''
 
     @abstractmethod
     def extract(self, file_path: PathLike, repo_path: Optional[PathLike] = None) -> Sequence[SourceFunction]:
+        '''
+        Extracts functions from the given source code file.
+
+        Parameters:
+            file_path: The path to the source file.
+            repo_path: Optional repository root path to calculate relative function scopes.
+
+        Returns:
+            A sequence of `SourceFunction` instances extracted from the file.
+        '''
         pass
 
     @abstractmethod
     def get_extractable_files(self, path: PathLike) -> Sequence[Path]:
+        '''
+        Retrieves all files that can be processed by the extractor from the given path.
+
+        Parameters:
+            path: A file or directory path to search for extractable files.
+
+        Returns:
+            A sequence of `Path` objects representing extractable source files.
+        '''
         pass
 
 
 def get_extractor(language: str, *args: Any, **kwargs: Any) -> Extractor:
+    '''
+    Retrieves the registered extractor instance for the specified language.
+
+    Parameters:
+        language: The name of the language for which to retrieve an extractor.
+        *args: Positional arguments passed to the extractor's constructor.
+        **kwargs: Keyword arguments passed to the extractor's constructor.
+
+    Returns:
+        An instance of the extractor class for the given language.
+
+    Raises:
+        ExtractorNotFound: If no extractor is registered for the specified language.
+    '''
     if language in EXTRACTORS:
         module_path, class_name = EXTRACTORS[language].rsplit('.', 1)
         module = importlib.import_module(module_path)
@@ -67,34 +126,91 @@ EXTRACTOR_CHECKPOINT_PREFIX: Final[str] = 'codablellm_extractor'
 
 
 def get_checkpoint_files() -> List[Path]:
+    '''
+    Retrieves all checkpoint files related to source function extraction.
+
+    Returns:
+        A list of checkpoint files.
+    '''
     return utils.get_checkpoint_files(EXTRACTOR_CHECKPOINT_PREFIX)
 
 
 def save_checkpoint_file(source_code_functions: List[SourceFunction]) -> None:
+    '''
+    Saves a checkpoint file containing extracted source functions.
+
+    Parameters:
+        source_code_functions: A list of `SourceFunction` instances to save as checkpoint data.
+    '''
     utils.save_checkpoint_file(EXTRACTOR_CHECKPOINT_PREFIX,
                                source_code_functions)
 
 
 def load_checkpoint_data() -> List[SourceFunction]:
+    '''
+    Loads checkpoint data for source functions and clears the checkpoint files after loading.
+
+    Returns:
+        A list of `SourceFunction` instances restored from checkpoint data.
+    '''
     return [SourceFunction.from_json(j)  # type: ignore
             for j in utils.load_checkpoint_data(EXTRACTOR_CHECKPOINT_PREFIX, delete_on_load=True)]
 
 
 Transform = Callable[[SourceFunction], SourceFunction]
+'''
+A callable object that transforms a source code function into another source code function.
+'''
 
 
 @dataclass(frozen=True)
 class ExtractConfig:
+    '''
+    Configuration for extracting source code functions.
+    '''
     max_workers: Optional[int] = None
+    '''
+    Maximum number of files to extract functions in parallel.
+    '''
     accurate_progress: bool = True
+    '''
+    Whether to accurately track progress by counting extractable files in advance. This may take
+    longer to start but provides more accurate progress tracking.
+    '''
     transform: Optional[Transform] = None
+    '''
+    An optional transformation to apply to each source code function.
+    '''
     exclusive_subpaths: Set[Path] = field(default_factory=set)
+    '''
+    A set of subpaths to exclusively extract functions from. If specified, only these subpaths will be extracted.
+    '''
     exclude_subpaths: Set[Path] = field(default_factory=set)
+    '''
+    A set of subpaths to exclude from extraction. If specified, these subpaths will be ignored.
+    '''
     checkpoint: int = 10
+    '''
+    The number of steps between saving checkpoints. Set to 0 to disable checkpoints.
+    '''
     use_checkpoint: bool = True
+    '''
+    `True` if a checkpoint file should be loaded and used to resume extraction.
+    '''
     extract_as_repo: bool = True
+    '''
+    `True` if the path should be treated as a repository root for calculating relative function scopes.
+    '''
     extractor_args: Dict[str, Sequence[Any]] = field(default_factory=dict)
+    '''
+    Positional arguments to pass to the extractor's `__init__` method. The keys are language
+    names. The values are sequences of arguments. For example, `{'C': [arg1, arg2]}`.
+    '''
     extractor_kwargs: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    '''
+    Keyword arguments to pass to the extractor's `__init__` method. The keys are language names.
+    The values are dictionaries of keyword arguments. For example, `{'C': {'kwarg1': value1}}`.
+    '''
 
     def __post_init__(self) -> None:
         if self.max_workers and self.max_workers < 1:
@@ -205,6 +321,20 @@ def extract(path: PathLike, config: ExtractConfig = ExtractConfig(),
 def extract(path: PathLike, config: ExtractConfig = ExtractConfig(),
             as_callable_pool: bool = False) -> Union[List[SourceFunction],
                                                      _CallableExtractor]:
+    '''
+    Extracts source functions from the given path using the specified configuration.
+
+    If `as_callable_pool` is `True`, returns a deferred callable extractor that can be executed later,  
+    typically used for progress bar display or asynchronous processing.
+
+    Parameters:
+        path: The file or directory path from which to extract functions.
+        config: Extraction configuration options.
+        as_callable_pool: If `True`, returns a callable extractor for deferred execution.
+
+    Returns:
+        Either a list of extracted `SourceFunction` instances or a `_CallableExtractor` for deferred execution.
+    '''
     extractor = _CallableExtractor(path, config)
     if as_callable_pool:
         return extractor

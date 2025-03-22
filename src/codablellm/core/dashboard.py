@@ -29,6 +29,9 @@ logger = logging.getLogger('codablellm')
 
 
 class Progress(BaseProgress):
+    '''
+    A progress bar that can be used to track the progress of a task.
+    '''
 
     def __init__(self, task: str,
                  columns: Iterable[Union[str, ProgressColumn]] = [TextColumn('{task.description}'),
@@ -56,14 +59,32 @@ class Progress(BaseProgress):
 
     @property
     def completed(self) -> float:
+        '''
+        The number of completed tasks.
+
+        Returns:
+            The number of completed tasks.
+        '''
         return self.tasks[self._task].completed
 
     @property
     def total(self) -> Optional[float]:
+        '''
+        The total number tasks.
+
+        Returns:
+            The total number tasks.
+        '''
         return self.tasks[self._task].total
 
     @property
     def errors(self) -> int:
+        '''
+        The number of errors that have occurred during the progress.
+
+        Returns:
+            The total number of errors.
+        '''
         return self.tasks[self._task].fields['errors']
 
     def advance(self, errors: bool = False, advance: float = 1) -> None:
@@ -91,31 +112,71 @@ A callable object that is provided to `ProcessPoolExecutor.submit`.
 
 
 class CallablePoolProgress(ABC, Generic[I_co, R, T]):
+    '''
+    Abstract base class representing a callable wrapper around a process pool with progress tracking.
+
+    This class allows deferred execution of a process pool with built-in progress handling and 
+    provides a mechanism to retrieve results after completion.
+    '''
 
     def __init__(self, pool: 'ProcessPoolProgress[I_co, R]') -> None:
+        '''
+        Initializes the callable pool progress wrapper.
+
+        Parameters:
+            pool: The `ProcessPoolProgress` instance to manage and execute.
+        '''
         super().__init__()
         self._pool = pool
 
     @property
     def pool(self) -> 'ProcessPoolProgress[I_co, R]':
+        '''
+        The associated `ProcessPoolProgress` instance.
+
+        Returns:
+            The `ProcessPoolProgress` instance.
+        '''
         return self._pool
 
     @abstractmethod
     def get_results(self) -> T:
+        '''
+        Abstract method to retrieve results after the pool execution completes.
+
+        Returns:
+            The final processed result.
+        '''
         pass
 
     def __call__(self) -> T:
+        '''
+        Executes the process pool and returns the results.
+
+        Returns:
+            The final processed result.
+        '''
         with self.pool:
             return self.get_results()
 
 
 class ProcessPoolProgress(Iterator[R], Generic[I_co, R]):
+    '''
+    A process pool executor with integrated progress tracking and graceful shutdown handling.
+
+    This class manages task submission, monitors results, handles exceptions, and 
+    displays progress updates during parallel execution.
+    '''
 
     MAIN_PID: Final[int] = os.getpid()
+    '''
+    The PID of the main process, used for graceful shutdown handling.
+    '''
     _ACTIVE_POOLS: Final[List['ProcessPoolProgress[Any, Any]']] = []
     _gracefully_shutting_down: bool = False
 
     def __new__(cls, *args: Any, **kwargs: Any) -> 'ProcessPoolProgress':
+        # Setup graceful shutdown for all process pools when SIGINT is received
         signal.signal(signal.SIGINT,
                       ProcessPoolProgress._gracefully_shutdown_pools)
         return super().__new__(cls)
@@ -127,6 +188,21 @@ class ProcessPoolProgress(Iterator[R], Generic[I_co, R]):
                  initargs: Tuple[Any, ...] = (), *,
                  max_tasks_per_child: Optional[int] = None,
                  submit_args: Tuple[Any, ...] = (), submit_kwargs: Mapping[str, Any] = {}):
+        '''
+        Initializes the process pool progress manager.
+
+        Parameters:
+            submit: A callable used to process each item in `iterables`.
+            iterables: The iterable of input items to process in parallel.
+            progress: A `Progress` instance for tracking task completion.
+            max_workers: Maximum number of worker processes.
+            mp_context: Multiprocessing context.
+            initializer: Optional initializer function for each worker process.
+            initargs: Arguments passed to the initializer.
+            max_tasks_per_child: Maximum tasks per worker process before restarting.
+            submit_args: Additional positional arguments passed to each `submit` call.
+            submit_kwargs: Additional keyword arguments passed to each `submit` call.
+        '''
         self._submit = submit
         self._iterables = iterables
         self._progress = progress
@@ -191,6 +267,12 @@ class ProcessPoolProgress(Iterator[R], Generic[I_co, R]):
 
     @property
     def errors(self) -> int:
+        '''
+        The number of errors encountered during processing.
+
+        Returns:
+            The total number of errors.
+        '''
         return self._progress.errors
 
     @staticmethod
@@ -201,13 +283,23 @@ class ProcessPoolProgress(Iterator[R], Generic[I_co, R]):
                 ProcessPoolProgress._gracefully_shutting_down = True
                 for pool in ProcessPoolProgress._ACTIVE_POOLS:
                     pool._process_pool_executor.shutdown(wait=False,
-                                                        cancel_futures=True)
+                                                         cancel_futures=True)
         else:
             signal.default_int_handler(signum, frame)
 
     @staticmethod
     def multi_progress(*pools: 'CallablePoolProgress[Any, Any, Any]',
                        title: Optional[str] = None) -> Tuple[List[Any], ...]:
+        '''
+        Runs multiple `CallablePoolProgress` instances concurrently with a shared progress display.
+
+        Parameters:
+            *pools: Multiple callable pool progress objects to run in parallel.
+            title: Optional title for the combined progress table display.
+
+        Returns:
+            A tuple of lists, where each list contains the results from one of the provided pools.
+        '''
 
         def get_results(pool: 'CallablePoolProgress[Any, Any, Any]',
                         results: Queue[Any]) -> None:

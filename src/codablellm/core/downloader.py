@@ -1,3 +1,7 @@
+'''
+Module containing functions for downloading remote repositories.
+'''
+
 import codablellm.core.utils as utils
 import hashlib
 import logging

@@ -396,6 +396,16 @@ class DecompiledFunction(Function):
 
     @staticmethod
     def create_uid(file_path: Path, name: str, _repo_path: Optional[Path] = None) -> str:
+        '''
+        Creates a UID for a function based on its file path and name.
+
+        Parameters:
+            file_path: The full file path of the function definition.
+            name: The name of the function.
+
+        Returns:
+            A UID string in the format: `<file_path>::<function_name>`.
+        '''
         return f'{file_path}::{name}'
 
     @classmethod
