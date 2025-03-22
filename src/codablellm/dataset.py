@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 import shutil
 from tempfile import TemporaryDirectory
-from typing import (Any, Callable, Dict, Iterable, Iterator, List, Literal,
+from typing import (Any, Callable, Dict, Final, Iterable, Iterator, List, Literal,
                     Sequence, Tuple, TypeVar, Union, overload)
 
 from pandas import DataFrame
@@ -345,13 +345,33 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
             return cls(s for s in final_functions)
 
 
-def default_mapper(function: DecompiledFunction, uid: Union[SourceFunction, str]) -> bool:
+def name_mapper(function: DecompiledFunction, uid: Union[SourceFunction, str]) -> bool:
+    '''
+    Maps a decompiled function to a source function by comparing their function names.
+
+    Parameters:
+        function: The decompiled function to map.
+        uid: The source function UID or a `SourceFunction` object to map against.
+    
+    Returns:
+        `True` if the decompiled function name matches the source function name.
+    '''
     if isinstance(uid, SourceFunction):
         uid = uid.uid
     return function.name == SourceFunction.get_function_name(uid)
 
 
 Mapper = Callable[[DecompiledFunction, SourceFunction], bool]
+'''
+Callable type describing a mapping function that determines if a decompiled function
+corresponds to a given source function.
+'''
+
+DEFAULT_MAPPER: Final[Mapper] = name_mapper
+'''
+The default mapping function used to match decompiled functions to source functions.
+'''
+
 
 
 @dataclass(frozen=True)
@@ -382,7 +402,7 @@ class DecompiledCodeDatasetConfig:
         necessarily reflect actual stripped functions because the decompiler may still have
         access to debug symbols during the decompilation process.
     '''
-    mapper: Mapper = default_mapper
+    mapper: Mapper = DEFAULT_MAPPER
 
 
 class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, SourceCodeDataset]]):

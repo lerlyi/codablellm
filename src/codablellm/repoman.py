@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass
 import logging
 import subprocess
 from tempfile import NamedTemporaryFile
-from typing import Any, Generator, List, Literal, Optional, Sequence, Tuple, Union
+from typing import Any, Generator, Literal, Optional, Sequence, Tuple, Union
 
 from rich.prompt import Prompt
 

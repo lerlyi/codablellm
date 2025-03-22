@@ -1,3 +1,7 @@
+'''
+Core utility functions for codablellm.
+'''
+
 from itertools import dropwhile, takewhile
 import time
 import threading
@@ -108,6 +112,17 @@ def is_binary(file_path: PathLike) -> bool:
 
 
 def resolve_kwargs(**kwargs: Any) -> Dict[str, Any]:
+    '''
+    Filters out keyword arguments with `None` values.
+
+    Returns a dictionary containing only key-value pairs where the value is not `None`.
+
+    Parameters:
+        **kwargs: Arbitrary keyword arguments.
+
+    Returns:
+        A dictionary of keyword arguments with `None` values removed.
+    '''
     return {k: v for k, v in kwargs.items() if v is not None}
 
 
@@ -117,12 +132,30 @@ class ASTEditor:
     '''
 
     def __init__(self, parser: Parser, source_code: str, ensure_parsable: bool = True) -> None:
+        '''
+        Initializes the AST editor with a parser and source code.
+
+        Parameters:
+            parser: The `Parser` object used to parse the source code.
+            source_code: The source code to be edited.
+            ensure_parsable: If `True`, raises an error if edits result in an invalid AST.
+        '''
         self.parser = parser
         self.source_code = source_code
         self.ast = self.parser.parse(source_code.encode())
         self.ensure_parsable = ensure_parsable
 
     def edit_code(self, node: Node, new_code: str) -> None:
+        '''
+        Edits the source code at the specified AST node and updates the AST.
+
+        Parameters:
+            node: The `Node` object representing the code to replace.
+            new_code: The new code to insert in place of the node's source code.
+
+        Raises:
+            TSParsingError: If `ensure_parsable` is `True` and the resulting AST has parsing errors.
+        '''
         # Calculate new code metrics
         num_bytes = len(new_code)
         num_lines = new_code.count('\n')
@@ -154,6 +187,20 @@ class ASTEditor:
 
     def match_and_edit(self, query: str,
                        groups_and_replacement: Dict[str, Union[str, Callable[[Node], str]]]) -> None:
+        '''
+        Searches the AST using a Tree-sitter query and applies code edits to matching nodes.
+
+        For each match group, replaces the matched node's code with a provided string or the
+        result of a callable that returns the replacement string.
+
+        Parameters:
+            query: The Tree-sitter query string to use for finding matching nodes.
+            groups_and_replacement: A mapping from query group names to either replacement strings
+                                    or callables that take a `Node` and return a replacement string.
+
+        Raises:
+            TSParsingError: If an edit introduces parsing errors and `ensure_parsable` is `True`.
+        '''
         modified_nodes: Set[Node] = set()
         matches = self.ast.language.query(query).matches(self.ast.root_node)
         for idx in range(len(matches)):
@@ -173,6 +220,24 @@ class ASTEditor:
 
 
 def requires_extra(extra: str, feature: str, module: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    '''
+    Decorator that enforces the presence of an optional dependency (extra) before executing a function.
+
+    If the required module is not installed, raises an `ExtraNotInstalled` error with instructions
+    on how to install the missing extra.
+
+    Parameters:
+        extra: The name of the extra (e.g., "excel") required for the feature.
+        feature: A description of the feature that requires the extra.
+        module: The module name to attempt to import.
+
+    Returns:
+        A decorator that checks for the required extra before calling the function.
+
+    Raises:
+        ExtraNotInstalled: If the required module is not installed.
+    '''
+
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -190,24 +255,77 @@ T = TypeVar('T')
 
 
 def iter_queue(queue: Queue[T]) -> Generator[T, None, None]:
+    '''
+    Iterates over all items in a queue until it is empty.
+
+    Parameters:
+        queue: A `Queue` object containing items to iterate over.
+
+    Returns:
+        A generator that yields each item from the queue.
+    '''
     while not queue.empty():
         yield queue.get()
 
 
 def get_checkpoint_file(prefix: str) -> Path:
+    '''
+    Returns the checkpoint file path for the current process based on the given prefix.
+
+    The checkpoint file is stored in the system temporary directory and named using
+    the format: `{prefix}_{pid}.json`.
+
+    Parameters:
+        prefix: The filename prefix for the checkpoint file.
+
+    Returns:
+        A `Path` object pointing to the checkpoint file.
+    '''
     return Path(tempfile.gettempdir()) / f'{prefix}_{os.getpid()}.json'
 
 
 def get_checkpoint_files(prefix: str) -> List[Path]:
+    '''
+    Retrieves all checkpoint files matching the given prefix.
+
+    Parameters:
+        prefix: The filename prefix used to locate checkpoint files.
+
+    Returns:
+        A list of `Path` objects for all matching checkpoint files.
+    '''
     return list(Path(tempfile.gettempdir()).glob(f'{prefix}_*'))
 
 
 def save_checkpoint_file(prefix: str, contents: Iterable[SupportsJSON]) -> None:
+    '''
+    Saves checkpoint data to a file based on the given prefix.
+
+    The contents are converted to JSON and written to a checkpoint file named
+    `{prefix}_{pid}.json` in the system temporary directory.
+
+    Parameters:
+        prefix: The filename prefix for the checkpoint file.
+        contents: An iterable of objects that support JSON serialization via `to_json()`.
+    '''
     checkpoint_file = get_checkpoint_file(prefix)
     checkpoint_file.write_text(json.dumps([c.to_json() for c in contents]))
 
 
 def load_checkpoint_data(prefix: str, delete_on_load: bool = False) -> List[JSONObject]:
+    '''
+    Loads checkpoint data from all checkpoint files matching the given prefix.
+
+    The function reads and aggregates JSON data from each checkpoint file and optionally
+    deletes the checkpoint files after loading.
+
+    Parameters:
+        prefix: The filename prefix used to locate checkpoint files.
+        delete_on_load: If `True`, deletes the checkpoint files after loading their contents.
+
+    Returns:
+        A list of JSON objects aggregated from all matching checkpoint files.
+    '''
     checkpoint_data: List[JSONObject] = []
     checkpoint_files = get_checkpoint_files(prefix)
     for checkpoint_file in checkpoint_files:
@@ -326,6 +444,19 @@ def rate_limiter(max_rpm: int, max_tpm: int, model: str = "gpt-4") -> Callable[[
 
 
 def rebase_path(original: PathLike, target: PathLike) -> Path:
+    '''
+    Rebases the `target` path relative to the shared root with the `original` path.
+
+    This function identifies the common prefix between the `original` and `target` paths
+    and returns a new path combining the shared path with the differing portion of the `target` path.
+
+    Parameters:
+        original: The base path to compare against.
+        target: The target path to rebase relative to the shared root with `original`.
+
+    Returns:
+        A `Path` object representing the rebased target path.
+    '''
     original = Path(original).resolve()
     target = Path(target).resolve()
     shared_path = Path(*[p for p, _ in takewhile(lambda x: x[0] == x[1],
@@ -344,6 +475,18 @@ def normalize_sequence(value: str) -> List[str]: ...
 
 
 def normalize_sequence(value: Union[str, Sequence[T]]) -> Union[Sequence[T], List[str]]:
+    '''
+    Normalizes the input value into a sequence.
+
+    If a string is provided, it splits the string by whitespace and returns a list of substrings.
+    If a sequence is provided, it is returned unchanged.
+
+    Parameters:
+        value: A string or a sequence of items.
+
+    Returns:
+        A sequence of items or a list of strings if the input was a string.
+    '''
     if isinstance(value, str):
         return value.split()
     return value

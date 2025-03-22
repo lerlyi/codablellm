@@ -1,4 +1,6 @@
-
+'''
+Classes pertaining to functions used in code datasets.
+'''
 from dataclasses import dataclass, field, fields
 import logging
 from pathlib import Path
@@ -24,14 +26,35 @@ class FunctionJSONObject(TypedDict):
 
 @dataclass(frozen=True)
 class Function(SupportsJSON):
+    '''
+    Base class for functions used in datasets.
+    '''
     uid: str
+    '''
+    A unique identifier for the function. This should be unique across all functions in a dataset.
+    '''
     path: Path
+    '''
+    Path to the file containing the function.
+    '''
     name: str
+    '''
+    The name of the function.
+    '''
     definition: str
+    '''
+    The source code of the function.
+    '''
     _metadata: Dict[str, Any] = field(default_factory=dict, init=False)
 
     @property
     def metadata(self) -> Mapping[str, Any]:
+        '''
+        A read-only view of the metadata associated with the function.
+
+        Returns:
+            A mapping containing the metadata associated with the function.
+        '''
         return {k: v for k, v in self._metadata.items()}
 
     def set_metadata(self, metadata: Mapping[str, Any]) -> None:
@@ -46,6 +69,12 @@ class Function(SupportsJSON):
         return self.set_metadata({**metadata, **self._metadata})
 
     def remove_metadata(self, key: str) -> None:
+        '''
+        Removes a metadata entry from the function.
+
+        Parameters:
+            key: The key of the metadata entry to remove.
+        '''
         del self._metadata[key]
 
     def to_json(self) -> FunctionJSONObject:
