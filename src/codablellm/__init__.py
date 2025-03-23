@@ -6,7 +6,7 @@ import logging
 
 from rich.logging import RichHandler
 
-from codablellm.core import extractor, decompiler, ExtractConfig, DecompileConfig, rate_limiter
+from codablellm.core import extractor, decompiler, ExtractConfig, DecompileConfig
 from codablellm.dataset import SourceCodeDatasetConfig, DecompiledCodeDatasetConfig
 from codablellm.repoman import (create_source_dataset, create_decompiled_dataset,
                                 compile_dataset, ManageConfig)
@@ -15,8 +15,7 @@ __version__ = '1.0.0'
 __all__ = ['create_source_dataset',
            'create_decompiled_dataset', 'compile_dataset',
            'extractor', 'decompiler', 'ExtractConfig', 'DecompileConfig',
-           'ManageConfig', 'SourceCodeDatasetConfig', 'DecompiledCodeDatasetConfig',
-           'rate_limiter']
+           'ManageConfig', 'SourceCodeDatasetConfig', 'DecompiledCodeDatasetConfig']
 
 # Configure logger
 logging.basicConfig(

@@ -1,13 +1,9 @@
-from collections import deque
 from pathlib import Path
-from queue import Queue
-import time
 from typing import List
 
 import pytest
 
 from codablellm.core import *
-from codablellm.core import utils
 from codablellm.exceptions import ExtractorNotFound
 from codablellm.languages import CExtractor
 
@@ -139,14 +135,3 @@ def test_extractors_config() -> None:
     assert isinstance(extractor.get_extractor('C'), CExtractor)
     with pytest.raises(ExtractorNotFound):
         extractor.get_extractor('nonexistant')
-
-
-@utils.rate_limiter(max_rpm=500, max_tpm=30000)
-def print_prompt(prompt: str) -> None:
-    print(prompt)
-
-
-def test_rate_limiter() -> None:
-    for prompt in ['foo', 'this is a prompt', 'this is an even longer prompt',
-              '']:
-        print_prompt(prompt)
