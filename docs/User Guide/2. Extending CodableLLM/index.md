@@ -1,6 +1,6 @@
 # 2. Extending CodableLLM
 
-### Table of Contents
+## Table of Contents
 
 1. [**Overview**](1.%20Overview.md)
 2. [**Creating a Custom Extractor**](2.%20Creating%20a%20Custom%20Extractor.md)

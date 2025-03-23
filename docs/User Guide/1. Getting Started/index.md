@@ -1,6 +1,6 @@
 # Getting Started
 
-### Table of Contents
+## Table of Contents
 1. [**Installation**](1.%20Installation.md)
 2. [**Quickstart**](./2.%20Quickstart.md)
 3. [**Methods for Creating Datasets**](./3.%20Methods%20for%20Creating%20Datasets.md)

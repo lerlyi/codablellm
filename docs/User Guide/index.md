@@ -1,6 +1,7 @@
 # User Guide
 
 This guide will walk you through everything you need to know to use CodableLLM effectively — from basic dataset creation to advanced customization. You'll learn how to:
+
 - Install and set up CodableLLM
 - Understand the different dataset creation methods and when to use each
 - Customize function extraction and decompilation behavior using configuration options
