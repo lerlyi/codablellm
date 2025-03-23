@@ -1,4 +1,4 @@
-site_name: codablellm
+site_name: CodableLLM
 theme:
   name: material
   features:

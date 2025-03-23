@@ -403,6 +403,9 @@ class DecompiledCodeDatasetConfig:
         access to debug symbols during the decompilation process.
     '''
     mapper: Mapper = DEFAULT_MAPPER
+    '''
+    The mapping function used to determine if a decompiled function corresponds to a given source function.
+    '''
 
 
 class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, SourceCodeDataset]]):
