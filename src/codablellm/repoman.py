@@ -231,6 +231,7 @@ def compile_dataset(path: utils.PathLike, bins: Sequence[utils.PathLike], build_
         manage_config: Configuration settings for managing the repository.
         extract_config: Configuration settings for extracting source code functions.
         dataset_config: Configuration settings for generating the decompiled code dataset.
+        generation_mode: Specifies the mode for generating the dataset.
         repo_arg_with: If specified, appends the path to the repository to the `build_command`, `cleanup_command`, or both. This option is mainly useful when `generation_mode` is set to `'temp'` or `'temp-append'`, as it ensures that the commands operate on the temporary directory containing the copied repository.
 
     Returns:
