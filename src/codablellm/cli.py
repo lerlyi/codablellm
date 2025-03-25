@@ -179,7 +179,7 @@ CLEANUP_ERROR_HANDLING: Final[CommandErrorHandler] = Option(DEFAULT_MANAGE_CONFI
                                                             'during the cleanup process. Options include '
                                                             'ignoring the error, raising an exception, or '
                                                             'prompting the user for manual intervention.')
-MAPPER: Final[Mapper] = Option('codablellm.dataset.default_mapper',
+MAPPER: Final[Mapper] = Option('codablellm.dataset.DEFAULT_MAPPER',
                             metavar='CALLABLEPATH',
                             help='Mapper to use for mapping decompiled functions to source '
                             'code functions.',

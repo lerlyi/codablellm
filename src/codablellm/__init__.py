@@ -11,7 +11,7 @@ from codablellm.dataset import SourceCodeDatasetConfig, DecompiledCodeDatasetCon
 from codablellm.repoman import (create_source_dataset, create_decompiled_dataset,
                                 compile_dataset, ManageConfig)
 
-__version__ = '1.0.0'
+__version__ = '1.0.3'
 __all__ = ['create_source_dataset',
            'create_decompiled_dataset', 'compile_dataset',
            'extractor', 'decompiler', 'ExtractConfig', 'DecompileConfig',
