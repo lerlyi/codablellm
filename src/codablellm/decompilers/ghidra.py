@@ -17,7 +17,7 @@ from codablellm.core.utils import is_binary, PathLike
 
 logger = logging.getLogger('codablellm')
 
-
+# TODO: handle halt_baddata();
 class Ghidra(Decompiler):
     '''
     The Ghidra decompiler.

@@ -7,21 +7,25 @@ import importlib
 import json
 from pathlib import Path
 import logging
+import os
+import sys
 
 from click import BadParameter
 from rich import print
 from rich.prompt import Confirm
 from typer import Argument, Exit, Option, Typer
-from typing import Any, Callable, Dict, Final, List, Optional, Tuple
+from typing import Any, Dict, Final, List, Optional, Tuple
 
 import codablellm
 from codablellm.core import downloader
 from codablellm.core.decompiler import DecompileConfig
-from codablellm.core.extractor import ExtractConfig
-from codablellm.core.function import SourceFunction
+from codablellm.core.extractor import ExtractConfig, Transform
 from codablellm.dataset import DecompiledCodeDatasetConfig, Mapper, SourceCodeDatasetConfig
 from codablellm.decompilers.ghidra import Ghidra
 from codablellm.repoman import ManageConfig
+
+# Add current directory to sys.path to allow for dynamic imports of extractors and mappers
+sys.path.insert(0, os.getcwd())
 
 logger = logging.getLogger('codablellm')
 
@@ -79,7 +83,7 @@ def dynamic_import(path: str) -> Any:
         raise BadParameter(f'Cannot find "{path}"') from e
 
 
-def parse_transform(callable_path: str) -> Callable[[SourceFunction], SourceFunction]:
+def parse_transform(callable_path: str) -> Transform:
     return dynamic_import(callable_path)
 
 
@@ -180,10 +184,10 @@ CLEANUP_ERROR_HANDLING: Final[CommandErrorHandler] = Option(DEFAULT_MANAGE_CONFI
                                                             'ignoring the error, raising an exception, or '
                                                             'prompting the user for manual intervention.')
 MAPPER: Final[Mapper] = Option('codablellm.dataset.DEFAULT_MAPPER',
-                            metavar='CALLABLEPATH',
-                            help='Mapper to use for mapping decompiled functions to source '
-                            'code functions.',
-                            parser=parse_mapper)
+                               metavar='CALLABLEPATH',
+                               help='Mapper to use for mapping decompiled functions to source '
+                               'code functions.',
+                               parser=parse_mapper)
 MAX_DECOMPILER_WORKERS: Final[Optional[int]] = Option(DEFAULT_DECOMPILED_CODE_DATASET_CONFIG.decompiler_config.max_workers,
                                                       min=1,
                                                       help='Maximum number of workers to use to '
