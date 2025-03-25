@@ -292,6 +292,8 @@ def compile_dataset(path: utils.PathLike, bins: Sequence[utils.PathLike], build_
                              f'is {path}. Rebasing paths to binaries...')
                 rebased_bins = [utils.rebase_path(b, dataset_path)
                                 for b in bins]
+            else:
+                rebased_bins = bins
             # Compile repository
             append_repo_path(dataset_path)
             with manage(build_command, config=manage_config):
