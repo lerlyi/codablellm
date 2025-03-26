@@ -403,7 +403,7 @@ def benchmark_function(task: str) -> Callable[[Callable[..., Any]], Callable[...
             start = time.perf_counter()
             result = func(*args, **kwargs)
             end = time.perf_counter()
-            logger.debug(f'{task} took {end - start:.2f} seconds')
+            logger.info(f'{task} took {end - start:.2f} seconds')
             return result
         return wrapper
     return decorator
@@ -420,4 +420,4 @@ def benchmark_context(task: str) -> Generator[None, None, None]:
     start = time.perf_counter()
     yield
     end = time.perf_counter()
-    logger.debug(f'{task} took {end - start:.2f} seconds')
+    logger.info(f'{task} took {end - start:.2f} seconds')

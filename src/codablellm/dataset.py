@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from contextlib import nullcontext
 from dataclasses import dataclass, field
+from functools import wraps
 import logging
 import os
 from pathlib import Path
@@ -19,6 +20,7 @@ from pandas import DataFrame
 from codablellm.core import decompiler, extractor, utils
 from codablellm.core.dashboard import ProcessPoolProgress, Progress
 from codablellm.core.function import DecompiledFunction, SourceFunction
+from codablellm.exceptions import TSParsingError
 
 logger = logging.getLogger('codablellm')
 
@@ -174,6 +176,22 @@ class SourceCodeDatasetConfig:
 T = TypeVar('T')
 
 
+def clear_checkpoints_after() -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    '''
+    Decorator that clears all extractor checkpoint files after successful execution of the decorated function.
+    '''
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        @wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            result = func(*args, **kwargs)
+            for checkpoint_file in extractor.get_checkpoint_files():
+                checkpoint_file.unlink(missing_ok=True)
+            logger.debug(f'Removed all extractor checkpoints')
+            return result
+        return wrapper
+    return decorator
+
+
 class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
     '''
     A source code dataset.
@@ -254,6 +272,7 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
 
     @classmethod
     @utils.benchmark_function('Source code dataset creation')
+    @clear_checkpoints_after()
     def from_repository(cls, path: utils.PathLike,
                         config: SourceCodeDatasetConfig = SourceCodeDatasetConfig(
                             log_generation_warning=False),
@@ -353,7 +372,7 @@ def name_mapper(function: DecompiledFunction, uid: Union[SourceFunction, str]) -
     Parameters:
         function: The decompiled function to map.
         uid: The source function UID or a `SourceFunction` object to map against.
-    
+
     Returns:
         `True` if the decompiled function name matches the source function name.
     '''
@@ -372,7 +391,6 @@ DEFAULT_MAPPER: Final[Mapper] = name_mapper
 '''
 The default mapping function used to match decompiled functions to source functions.
 '''
-
 
 
 @dataclass(frozen=True)
@@ -532,7 +550,7 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
     @classmethod
     @utils.benchmark_function('Mapping source code to decompiled code')
     def _from_dataset_and_decompiled(cls, source_dataset: SourceCodeDataset,
-                                     decompiled_functions: Iterable[DecompiledFunction],
+                                     decompiled_functions: Sequence[DecompiledFunction],
                                      stripped: bool,
                                      mapper: Mapper) -> 'DecompiledCodeDataset':
 
@@ -541,21 +559,30 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
             function_name_map.setdefault(SourceFunction.get_function_name(source_function.uid),
                                          []).append(source_function)
         mappings: List[Tuple[DecompiledFunction, SourceCodeDataset]] = []
-        with Progress('Mapping functions...'):
+        with Progress('Mapping functions...', total=len(decompiled_functions)) as progress:
             for decompiled_function in decompiled_functions:
                 source_functions = [s for s in function_name_map.get(decompiled_function.name, [])
                                     if mapper(decompiled_function, s)]
                 if source_functions:
                     if stripped:
-                        decompiled_function = decompiled_function.to_stripped()
+                        try:
+                            decompiled_function = decompiled_function.to_stripped()
+                        except (TSParsingError, ValueError):  # TODO: remove ValueError
+                            logger.error(
+                                f'Could not strip {decompiled_function.uid}')
+                            progress.advance(errors=True)
+                            progress.advance()
+                            continue
                     mappings.append((decompiled_function,
                                     SourceCodeDataset(source_functions)))
+                progress.advance()
             logger.info(f'Successfully mapped {len(mappings)} decompiled functions to '
                         f'{sum(len(f) for f in function_name_map.values())} source functions')
             return cls(mappings)
 
     @classmethod
-    @utils.benchmark_function('Source code dataset creation')
+    @utils.benchmark_function('Decompiled code dataset creation')
+    @clear_checkpoints_after()
     def from_repository(cls, path: utils.PathLike, bins: Sequence[utils.PathLike],
                         extract_config: extractor.ExtractConfig = extractor.ExtractConfig(),
                         dataset_config: DecompiledCodeDatasetConfig = DecompiledCodeDatasetConfig()) -> 'DecompiledCodeDataset':
@@ -616,6 +643,8 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
                                                 dataset_config.strip, dataset_config.mapper)
 
     @classmethod
+    @utils.benchmark_function('Decompiled code dataset creation')
+    @clear_checkpoints_after()
     def from_source_code_dataset(cls, dataset: SourceCodeDataset, bins: Sequence[utils.PathLike],
                                  config: DecompiledCodeDatasetConfig = DecompiledCodeDatasetConfig()) -> 'DecompiledCodeDataset':
         '''
