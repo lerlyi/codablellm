@@ -35,7 +35,7 @@ class Function(SupportsJSON):
     '''
     path: Path
     '''
-    Path to the file containing the function.
+    Absolute path to the file containing the function.
     '''
     name: str
     '''
@@ -46,6 +46,10 @@ class Function(SupportsJSON):
     The source code of the function.
     '''
     _metadata: Dict[str, Any] = field(default_factory=dict, init=False)
+
+    def __post_init__(self) -> None:
+        if not self.path.is_absolute():
+            raise ValueError('Path to source code file must be absolute.')
 
     @property
     def metadata(self) -> Mapping[str, Any]:

@@ -16,7 +16,7 @@ from typing import (
 from codablellm.core import utils
 from codablellm.core.dashboard import CallablePoolProgress, ProcessPoolProgress, Progress
 from codablellm.core.function import SourceFunction
-from codablellm.core.utils import PathLike
+from codablellm.core.utils import PathLike, benchmark_function
 from codablellm.exceptions import ExtractorNotFound
 
 EXTRACTORS: Final[OrderedDict[str, str]] = OrderedDict({
@@ -282,6 +282,7 @@ class _CallableExtractor(CallablePoolProgress[Tuple[Extractor, Path, Optional[Pa
         super().__init__(pool)
         self.transform = config.transform
 
+    @benchmark_function('Extracting source code functions')
     def get_results(self) -> List[SourceFunction]:
         results: Dict[str, SourceFunction] = {}
         if self.use_checkpoint:

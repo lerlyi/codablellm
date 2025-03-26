@@ -2,6 +2,7 @@
 Core utility functions for codablellm.
 '''
 
+from contextlib import contextmanager
 from itertools import dropwhile, takewhile
 import time
 import threading
@@ -337,30 +338,6 @@ def load_checkpoint_data(prefix: str, delete_on_load: bool = False) -> List[JSON
     return checkpoint_data
 
 
-def count_openai_tokens(prompt: str, model: str = "gpt-4") -> int:
-    '''
-    Tokenizes a prompt and calculate the number of tokens used by an OpenAI model.
-
-    Parameters:
-        prompt: The prompt to tokenize.
-        model: The OpenAI model to calculate the number of tokens used.
-
-    Returns:
-        The number tokens used by the OpenAI model.
-    '''
-    # Load the appropriate tokenizer for the model
-    tokenizer = tiktoken.encoding_for_model(model)
-    # Tokenize the prompt and count the tokens
-    tokens = tokenizer.encode(prompt)
-    return len(tokens)
-
-
-PromptCallable = Callable[Concatenate[str, ...], T]
-'''
-Function that has a string as its first positional argument, assumably the prompt to a LLM.
-'''
-
-
 def rebase_path(original: PathLike, target: PathLike) -> Path:
     '''
     Rebases the `target` path relative to the shared root with the `original` path.
@@ -408,3 +385,39 @@ def normalize_sequence(value: Union[str, Sequence[T]]) -> Union[Sequence[T], Lis
     if isinstance(value, str):
         return value.split()
     return value
+
+
+def benchmark_function(task: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    '''
+    Decorator that benchmarks the execution time of a function and logs the duration.
+
+    Parameters:
+        task: Description of the task being benchmarked.
+
+    Returns:
+        A decorator that wraps the function and logs the execution time in seconds
+    '''
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        @wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            start = time.perf_counter()
+            result = func(*args, **kwargs)
+            end = time.perf_counter()
+            logger.debug(f'{task} took {end - start:.2f} seconds')
+            return result
+        return wrapper
+    return decorator
+
+
+@contextmanager
+def benchmark_context(task: str) -> Generator[None, None, None]:
+    '''
+    Context manager that benchmarks the execution time of a code block and logs the duration.
+
+    Parameters:
+        task: Description of the task being benchmarked.
+    '''
+    start = time.perf_counter()
+    yield
+    end = time.perf_counter()
+    logger.debug(f'{task} took {end - start:.2f} seconds')

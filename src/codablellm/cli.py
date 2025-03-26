@@ -24,9 +24,6 @@ from codablellm.dataset import DecompiledCodeDatasetConfig, Mapper, SourceCodeDa
 from codablellm.decompilers.ghidra import Ghidra
 from codablellm.repoman import ManageConfig
 
-# Add current directory to sys.path to allow for dynamic imports of extractors and mappers
-sys.path.insert(0, os.getcwd())
-
 logger = logging.getLogger('codablellm')
 
 app = Typer()
@@ -75,6 +72,19 @@ def validate_dataset_format(path: Path) -> Path:
 
 
 def dynamic_import(path: str) -> Any:
+    if '/' in path:
+        file_delimeter = '/'
+    elif '\\' in path:
+        file_delimeter = '\\'
+    else:
+        file_delimeter = None
+    if file_delimeter:
+        parent_str_dir, path = path.rsplit(file_delimeter, maxsplit=1)
+        parent_dir = Path(parent_str_dir).resolve()
+    else:
+        parent_dir = Path(os.getcwd())
+    # Add parent directory to sys.path to allow for dynamic imports of extractors and mappers
+    sys.path.insert(0, str(parent_dir))
     module_path, callable_name = path.rsplit('.', 1)
     try:
         module = importlib.import_module(module_path)

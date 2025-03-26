@@ -14,7 +14,7 @@ from typing import Any, Dict, Final, List, Literal, Optional, TypedDict, Sequenc
 
 from codablellm.core.dashboard import CallablePoolProgress, ProcessPoolProgress, Progress
 from codablellm.core.function import DecompiledFunction
-from codablellm.core.utils import PathLike, is_binary
+from codablellm.core.utils import PathLike, benchmark_function, is_binary
 from codablellm.exceptions import DecompilerNotFound
 
 logger = logging.getLogger('codablellm')
@@ -123,12 +123,13 @@ class _CallableDecompiler(CallablePoolProgress[PathLike, Sequence[DecompiledFunc
             # If a path is a directory, glob all child binaries
             bins.extend([b for b in path.glob('*') if is_binary(b)]
                         if path.is_dir() else [path])
-        pool = ProcessPoolProgress(_decompile, bins, Progress('Decompiling binaries...', total=len(paths)),
+        pool = ProcessPoolProgress(_decompile, bins, Progress('Decompiling binaries...', total=len(bins)),
                                    max_workers=config.max_workers,
                                    submit_args=tuple(config.decompiler_args),
                                    submit_kwargs=config.decompiler_kwargs)
         super().__init__(pool)
 
+    @benchmark_function('Decompiling binaries')
     def get_results(self) -> List[DecompiledFunction]:
         return [d for b in self.pool for d in b]
 

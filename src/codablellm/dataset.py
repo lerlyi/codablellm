@@ -253,6 +253,7 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
                         as_callable_pool: Literal[True] = True) -> extractor._CallableExtractor: ...
 
     @classmethod
+    @utils.benchmark_function('Source code dataset creation')
     def from_repository(cls, path: utils.PathLike,
                         config: SourceCodeDatasetConfig = SourceCodeDatasetConfig(
                             log_generation_warning=False),
@@ -529,6 +530,7 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
         return DecompiledCodeDataset((d.to_stripped(), s) for d, s in self.values())
 
     @classmethod
+    @utils.benchmark_function('Mapping source code to decompiled code')
     def _from_dataset_and_decompiled(cls, source_dataset: SourceCodeDataset,
                                      decompiled_functions: Iterable[DecompiledFunction],
                                      stripped: bool,
@@ -553,6 +555,7 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
             return cls(mappings)
 
     @classmethod
+    @utils.benchmark_function('Source code dataset creation')
     def from_repository(cls, path: utils.PathLike, bins: Sequence[utils.PathLike],
                         extract_config: extractor.ExtractConfig = extractor.ExtractConfig(),
                         dataset_config: DecompiledCodeDatasetConfig = DecompiledCodeDatasetConfig()) -> 'DecompiledCodeDataset':

@@ -71,7 +71,7 @@ def execute_command(command: Command, error_handler: CommandErrorHandler = 'none
         task = f'Executing: "{command}"'
     logger.info(task)
     try:
-        ctx = Progress(f'{task}...') if show_progress else nullcontext()
+        ctx = Progress(task) if show_progress else nullcontext()
         with ctx:
             subprocess.run(command, capture_output=True, text=True,
                            check=True)
@@ -96,6 +96,7 @@ def execute_command(command: Command, error_handler: CommandErrorHandler = 'none
         logger.info(f'Successfully executed "{command}"')
 
 
+@utils.benchmark_function('Building repository')
 def build(command: Command, error_handler: Optional[CommandErrorHandler] = None,
           show_progress: Optional[bool] = None) -> None:
     '''
@@ -110,7 +111,7 @@ def build(command: Command, error_handler: Optional[CommandErrorHandler] = None,
                     **utils.resolve_kwargs(error_handler=error_handler,
                                            show_progress=show_progress))
 
-
+@utils.benchmark_function('Cleaning up repository')
 def cleanup(command: Command, error_handler: Optional[CommandErrorHandler] = None,
             show_progress: Optional[bool] = None) -> None:
     '''
@@ -181,6 +182,7 @@ Creates a `DecompiledCodeDataset` from a repository.
 '''
 
 
+@utils.benchmark_function('Compiling dataset')
 def compile_dataset(path: utils.PathLike, bins: Sequence[utils.PathLike], build_command: Command,
                     manage_config: ManageConfig = ManageConfig(),
                     extract_config: ExtractConfig = ExtractConfig(),
