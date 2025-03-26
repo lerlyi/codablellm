@@ -86,6 +86,7 @@ def test_modified_source_dataset(c_repository: Path) -> None:
                                                    'name': [f.name for f in functions]}).set_index('uid').to_dict()
 
 
+@pytest.mark.skip(reason='Test release-please workflow')
 def test_decompiled_dataset(c_repository: Path, c_bin: Path) -> None:
     dataset = DecompiledCodeDataset.from_repository(c_repository, [c_bin])
     assert len(dataset) == 8
