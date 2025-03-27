@@ -74,7 +74,7 @@ def execute_command(command: Command, error_handler: CommandErrorHandler = 'none
         ctx = Progress(task) if show_progress else nullcontext()
         with ctx:
             subprocess.run(command, capture_output=True, text=True,
-                           check=True)
+                           check=True, shell=True)
     except subprocess.CalledProcessError as e:
         logger.error(f'Command failed: "{command}"'
                      f'\nstdout: {e.stdout}'

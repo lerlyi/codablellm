@@ -11,7 +11,7 @@ WORKDIR /app
 # Install dependencies including Java for Ghidra
 USER root
 RUN apt-get update && apt-get install -y \
-    openjdk-17-jdk wget unzip sudo git \
+    openjdk-17-jdk wget unzip sudo git build-essential gcc g++ make \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install Ghidra (adjust version as needed)

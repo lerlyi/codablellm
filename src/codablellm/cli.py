@@ -121,8 +121,14 @@ def show_version(show: bool) -> None:
         raise Exit()
 
 
+def try_create_repo_dir(path: Path) -> Path:
+    Path(path).mkdir(parents=True, exist_ok=True)
+    return path
+
+
 # Arguments
-REPO: Final[Path] = Argument(file_okay=False, exists=True, show_default=False,
+REPO: Final[Path] = Argument(file_okay=False, show_default=False,
+                             callback=try_create_repo_dir,
                              help='Path to the local repository.')
 SAVE_AS: Final[Path] = Argument(dir_okay=False, show_default=False,
                                 callback=validate_dataset_format,

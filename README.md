@@ -32,7 +32,10 @@ docker build -t codablellm .
 **Run the container with access to your local files:**
 
 ```bash
-docker run --rm -it -v $(pwd):/workspace codablellm codablellm --help
+docker run --rm -it -v $(pwd):/workspace -w /workspace codablellm \
+    codablellm --url https://github.com/dmanuel64/codablellm/raw/refs/heads/main/examples/demo-c-repo.zip \
+    --build "cd /tmp/demo-c-repo && make" \
+    /tmp/demo-c-repo demo-c-repo.csv /tmp/demo-c-repo
 ```
 
 > **This mounts your current directory to /workspace inside the container, allowing access to input/output files.**
