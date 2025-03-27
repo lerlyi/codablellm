@@ -103,7 +103,7 @@ class Dataset(ABC):
         logger.info(f'Successfully saved {path.name}')
 
 
-DatasetGenerationMode = Literal['path', 'temp', 'temp-append']
+DatasetGenerationMode = Literal['path', 'temp']
 '''
 How the dataset should be generated.
 
@@ -114,12 +114,12 @@ Generation Modes:
 
     - **`temp`**: Copies the repository to a temporary directory and generates the dataset there.
         - *If `extract_config.transform` is not provided, the mode defaults to `path`*.
-
-    - **`temp-append`**: Copies the repository to a temporary directory, applies the transformation 
-    using `extract_config.transform`, and appends the transformed entries to the original source 
-    code from the local repository.
-        - *If `extract_config.transform` is not provided, the mode defaults to `path`*.
 '''
+    # - **`temp-append`**: Copies the repository to a temporary directory, applies the transformation 
+    # using `extract_config.transform`, and appends the transformed entries to the original source 
+    # code from the local repository.
+    #     - *If `extract_config.transform` is not provided, the mode defaults to `path`*.
+
 
 # TODO: see if there's a way to make this a frozen dataclass
 
@@ -135,25 +135,12 @@ class SourceCodeDatasetConfig:
     generation_mode: DatasetGenerationMode = 'temp'
     '''
     How the source code dataset should be generated.
-
-    Generation Modes:
-        - **`path`**: Generates the dataset directly from the local repository path.
-            - *Note*: If `extract_config.transform` is provided, the source code in the local repository 
-            may be overridden by the transformed code.
-    
-        - **`temp`**: Copies the repository to a temporary directory and generates the dataset there.
-            - *If `extract_config.transform` is not provided, the mode defaults to `path`*.
-    
-        - **`temp-append`**: Copies the repository to a temporary directory, applies the transformation 
-        using `extract_config.transform`, and appends the transformed entries to the original source 
-        code from the local repository.
-            - *If `extract_config.transform` is not provided, the mode defaults to `path`*.
     '''
     delete_temp: bool = True
     '''
     Controls whether the temporary directory should be deleted after dataset generation.
 
-    - *Applies only if `generation_mode` is set to `temp` or `temp-append`. When set to `True`, 
+    - *Applies only if `generation_mode` is set to `temp`. When set to `True`, 
     the temporary directory will be automatically deleted after dataset generation.*
     '''
     extract_config: extractor.ExtractConfig = \
@@ -308,6 +295,8 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
         Returns:
             The generated source code dataset if `as_callable_pool` is `False`, or a `CallablePoolProgress` object if `as_callable_pool` is `True`.
         '''
+        if config.generation_mode == 'temp-append':
+            raise NotImplementedError('temp-append is not yet implemented')
         if config.generation_mode != 'temp-append':
             ctx = TemporaryDirectory(delete=config.delete_temp) if config.generation_mode == 'temp' \
                 else nullcontext()
@@ -559,6 +548,7 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
             function_name_map.setdefault(SourceFunction.get_function_name(source_function.uid),
                                          []).append(source_function)
         mappings: List[Tuple[DecompiledFunction, SourceCodeDataset]] = []
+        logger.info('Mapping decompiled functions to source functions...')
         with Progress('Mapping functions...', total=len(decompiled_functions)) as progress:
             for decompiled_function in decompiled_functions:
                 source_functions = [s for s in function_name_map.get(decompiled_function.name, [])
@@ -626,7 +616,7 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
         Raises:
             ValueError: If `bins` is an empty sequence.
         '''
-        bins = utils.normalize_sequence(bins)
+        bins = [bins] if isinstance(bins, str) else bins
         if not any(bins):
             raise ValueError('Must at least specify one binary')
         # Extract source code functions and decompile binaries in parallel
@@ -680,6 +670,6 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
             The generated dataset containing mappings of decompiled functions to their potential source code functions.
         '''
         return cls._from_dataset_and_decompiled(dataset, decompiler.decompile(bins,
-                                                                              **utils.resolve_kwargs(max_workers=config.decompiler_config.max_workers)),
+                                                                              config=config.decompiler_config),
                                                 config.strip,
                                                 config.mapper)

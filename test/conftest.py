@@ -9,24 +9,23 @@ from codablellm.core import decompiler
 from codablellm.core.decompiler import Decompiler
 from codablellm.core.decompiler import _decompile
 from codablellm.core.function import DecompiledFunction, DecompiledFunctionJSONObject
-from codablellm.repoman import Command
 
 FAILING_COMMAND = 'FAILED'
 
 
 @fixture(autouse=True)
-def mock_subprocess_run(monkeypatch: MonkeyPatch) -> None:
+def mock_subprocess_check_output(monkeypatch: MonkeyPatch) -> None:
 
-    def run(command: Union[List[str], str], *args, **kwargs) -> Any:
+    def check_output(command: Union[List[str], str], *args, **kwargs) -> Any:
         if isinstance(command, str):
             command = [command]
         if command == [FAILING_COMMAND]:
             raise subprocess.CalledProcessError(1, command)
-    monkeypatch.setattr(subprocess, 'run', run)
+    monkeypatch.setattr(subprocess, 'check_output', check_output)
 
 
 @fixture()
-def failing_command() -> Command:
+def failing_command() -> utils.Command:
     return FAILING_COMMAND
 
 

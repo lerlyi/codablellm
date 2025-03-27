@@ -5,11 +5,10 @@ High-level functionality for creating code datasets from source code repositorie
 from contextlib import contextmanager, nullcontext
 from dataclasses import asdict, dataclass
 import logging
-import subprocess
+import os
+from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Any, Generator, Literal, Optional, Sequence, Tuple, Union
-
-from rich.prompt import Prompt
+from typing import Final, Generator, Literal, Optional, Sequence, Tuple
 
 from codablellm.core import utils
 from codablellm.core.dashboard import Progress
@@ -20,85 +19,22 @@ from codablellm.dataset import (
     SourceCodeDatasetConfig
 )
 
-
-Command = Union[str, Sequence[Any]]
-'''
-A CLI command.
-'''
-
-CommandErrorHandler = Literal['interactive', 'ignore', 'none']
-'''
-Defines the strategies for handling errors encountered during the execution of a CLI command.
-
-Supported Error Handlers:
-    - **`ignore`**: The CLI command error is ignored, and execution continues without interruption.
-    - **`none`**: An exception is raised immediately upon encountering the CLI error.
-    - **`interactive`**: The user is prompted to resolve the error manually, allowing for
-    interactive handling of the issue.
-'''
-
 logger = logging.getLogger('codablellm')
 
+REBASED_DIR_ENVIRON_KEY: Final[str] = 'CODABLELLM_REBASED_DIR'
+'''
+Environment variable key used to expose the rebased directory path to subprocesses.
 
-def add_command_args(command: Command, *args: Any) -> Command:
-    '''
-    Appends additional arguments to a CLI command.
+This is especially useful when running custom build or clean commands that need to
+reference the rebased project root dynamically (e.g., using shell expansion like `$CODABLELLM_REBASED_DIR`).
 
-    Parameters:
-        command: The CLI command to append.
-        args: Additional arguments to append to the command.
-
-    Returns:
-        The updated command with the appended arguments.
-    '''
-    command = utils.normalize_sequence(command)
-    return [*command, *args]
-
-
-def execute_command(command: Command, error_handler: CommandErrorHandler = 'none',
-                    task: Optional[str] = None, show_progress: bool = True) -> None:
-    '''
-    Executes a CLI command.
-
-    Parameters:
-        command: The CLI command to be executed.
-        error_handler: Specifies how to handle errors during command execution.
-        task: An optional description of the task being performed, used for logging and displaying progress information.
-        show_progress: If `True`, a progress bar is displayed while the command is executing.
-    '''
-    command = utils.normalize_sequence(command)
-    if not task:
-        task = f'Executing: "{command}"'
-    logger.info(task)
-    try:
-        ctx = Progress(task) if show_progress else nullcontext()
-        with ctx:
-            subprocess.run(command, capture_output=True, text=True,
-                           check=True, shell=True)
-    except subprocess.CalledProcessError as e:
-        logger.error(f'Command failed: "{command}"'
-                     f'\nstdout: {e.stdout}'
-                     f'\nstderr: {e.stderr}')
-        if error_handler == 'interactive':
-            result = Prompt.ask('A command error occurred. You can manually fix the issue and '
-                                'retry, ignore the error to continue, or abort the process. '
-                                'How would you like to proceed?',
-                                choices=['retry', 'ignore', 'abort'],
-                                case_sensitive=False, default='retry')
-            if result == 'retry':
-                execute_command(command, error_handler=error_handler,
-                                task=task)
-            elif result == 'abort':
-                error_handler = 'none'
-        if error_handler == 'none':
-            raise
-    else:
-        logger.info(f'Successfully executed "{command}"')
+Set automatically when using the `temp` generation mode.
+'''
 
 
 @utils.benchmark_function('Building repository')
-def build(command: Command, error_handler: Optional[CommandErrorHandler] = None,
-          show_progress: Optional[bool] = None) -> None:
+def build(command: utils.Command, error_handler: Optional[utils.CommandErrorHandler] = None,
+          show_progress: Optional[bool] = None, cwd: Optional[utils.PathLike] = None) -> None:
     '''
     Builds a local repository using a specified CLI command.
 
@@ -106,25 +42,34 @@ def build(command: Command, error_handler: Optional[CommandErrorHandler] = None,
         command: The CLI command to execute for building the repository.
         error_handler: Specifies how to handle errors during the build process.
         show_progress: Specifies whether to display a progress bar during the build process.
+        cwd: The working directory to execute the build command in.
     '''
-    execute_command(command, task='Building repository...',
-                    **utils.resolve_kwargs(error_handler=error_handler,
-                                           show_progress=show_progress))
+    task = 'Building repository...'
+    utils.execute_command(command, task=task,
+                          ctx=Progress(
+                              task) if show_progress else nullcontext(),
+                          **utils.resolve_kwargs(error_handler=error_handler,
+                                                 cwd=cwd))
+
 
 @utils.benchmark_function('Cleaning up repository')
-def cleanup(command: Command, error_handler: Optional[CommandErrorHandler] = None,
-            show_progress: Optional[bool] = None) -> None:
+def cleanup(command: utils.Command, error_handler: Optional[utils.CommandErrorHandler] = None,
+            show_progress: Optional[bool] = None, cwd: Optional[utils.PathLike] = None) -> None:
     '''
     Cleans up build artifacts of a local repository using a specified CLI command.
 
     Parameters:
         command: The CLI command to execute for cleaning up the repository.
         error_handler: Specifies how to handle errors during the cleanup process. 
-        show_progress: Specifies whether to display a progress bar during the cleanup process. 
+        show_progress: Specifies whether to display a progress bar during the cleanup process.
+        cwd: The working directory to execute the build command in.
     '''
-    execute_command(command, task='Cleaning up repository...',
-                    **utils.resolve_kwargs(error_handler=error_handler,
-                                           show_progress=show_progress))
+    task = 'Cleaning up repository...'
+    utils.execute_command(command, task=task,
+                          ctx=Progress(
+                              task) if show_progress else nullcontext(),
+                          **utils.resolve_kwargs(error_handler=error_handler,
+                                                 cwd=cwd))
 
 
 @dataclass(frozen=True)
@@ -132,15 +77,15 @@ class ManageConfig:
     '''
     Configuration settings for managing a built local repository.
     '''
-    cleanup_command: Optional[Command] = None
+    cleanup_command: Optional[utils.Command] = None
     '''
     An optional CLI command to clean up the build artifacts of the repository.
     '''
-    build_error_handling: CommandErrorHandler = 'interactive'
+    build_error_handling: utils.CommandErrorHandler = 'interactive'
     '''
     Specifies how to handle errors during the build process.
     '''
-    cleanup_error_handling: CommandErrorHandler = 'ignore'
+    cleanup_error_handling: utils.CommandErrorHandler = 'ignore'
     '''
     Specifies how to handle errors during the cleanup process, if `cleanup_command` is provided.
     '''
@@ -148,26 +93,40 @@ class ManageConfig:
     '''
     Indicates whether to display a progress bar during both the build and cleanup processes. 
     '''
+    run_from: Literal['cwd', 'repo'] = 'repo'
+    ''''
+    Specifies the working directory from which to run build and clean commands.
+
+    - `repo`: Use the root of the repository as the working directory. This may refer to the original
+    repository path or a duplicated temporary copy depending on the generation mode.
+    - `cwd`: Use the current working directory at the time the command is run.
+
+    This option controls how relative paths within commands are resolved and can affect the behavior
+    of tools that assume a specific project root.
+    '''
 
 
 @contextmanager
-def manage(build_command: Command,
+def manage(build_command: utils.Command, path: utils.PathLike,
            config: ManageConfig = ManageConfig()) -> Generator[None, None, None]:
     '''
     Builds a local repository and optionally cleans up the build artifacts using a context manager.
 
     Parameters:
         build_command: The CLI command used to build the repository.
+        path: Path to the local repository to manage.
         config: Configuration settings for managing the repository.
 
     Returns:
         A context manager that builds the repository upon entering and optionally cleans up build artifacts upon exiting, based on the provided configuration.
     '''
     build(build_command, error_handler=config.build_error_handling,
+          cwd=path if config.run_from == 'repo' else None,
           show_progress=config.show_progress)
     yield
     if config.cleanup_command:
         cleanup(config.cleanup_command, error_handler=config.cleanup_error_handling,
+                cwd=path if config.run_from == 'repo' else None,
                 show_progress=config.show_progress)
 
 
@@ -183,13 +142,11 @@ Creates a `DecompiledCodeDataset` from a repository.
 
 
 @utils.benchmark_function('Compiling dataset')
-def compile_dataset(path: utils.PathLike, bins: Sequence[utils.PathLike], build_command: Command,
+def compile_dataset(path: utils.PathLike, bins: Sequence[utils.PathLike], build_command: utils.Command,
                     manage_config: ManageConfig = ManageConfig(),
                     extract_config: ExtractConfig = ExtractConfig(),
                     dataset_config: DecompiledCodeDatasetConfig = DecompiledCodeDatasetConfig(),
                     generation_mode: DatasetGenerationMode = 'temp',
-                    repo_arg_with: Optional[Literal['build',
-                                                    'cleanup', 'both']] = None
                     ) -> DecompiledCodeDataset:
     '''
     Builds a local repository and creates a `DecompiledCodeDataset` by decompiling the specified binaries.
@@ -234,11 +191,12 @@ def compile_dataset(path: utils.PathLike, bins: Sequence[utils.PathLike], build_
         extract_config: Configuration settings for extracting source code functions.
         dataset_config: Configuration settings for generating the decompiled code dataset.
         generation_mode: Specifies the mode for generating the dataset.
-        repo_arg_with: If specified, appends the path to the repository to the `build_command`, `cleanup_command`, or both. This option is mainly useful when `generation_mode` is set to `'temp'` or `'temp-append'`, as it ensures that the commands operate on the temporary directory containing the copied repository.
 
     Returns:
         The generated dataset containing mappings of decompiled functions to their potential source code functions.
 '''
+    if generation_mode == 'temp-append':
+        raise NotImplementedError('The temp-append generation mode is not implemented yet.')
     def try_transform_metadata(decompiled_function: DecompiledFunction,
                                source_functions: SourceCodeDataset,
                                other_dataset: DecompiledCodeDataset) -> Tuple[DecompiledFunction, SourceCodeDataset]:
@@ -259,19 +217,7 @@ def compile_dataset(path: utils.PathLike, bins: Sequence[utils.PathLike], build_
             source_functions = \
                 SourceCodeDataset(matched_source_functions.values())
         return decompiled_function, source_functions
-
-    def append_repo_path(path: utils.PathLike):
-        nonlocal repo_arg_with, manage_config, build_command
-        if repo_arg_with == 'build' or repo_arg_with == 'both':
-            build_command = add_command_args(build_command, path)
-        if manage_config.cleanup_command and (repo_arg_with == 'cleanup' or repo_arg_with == 'both'):
-            cleanup_command = add_command_args(
-                manage_config.cleanup_command, path)
-            manage_config_dict = asdict(manage_config)
-            manage_config_dict['cleanup_command'] = cleanup_command
-            manage_config = ManageConfig(**manage_config_dict)
-
-    bins = utils.normalize_sequence(bins)
+    bins = [bins] if isinstance(bins, str) else bins
     if extract_config.transform:
         # Create a modified source code dataset with transformed code
         modified_source_dataset = create_source_dataset(path,
@@ -292,18 +238,24 @@ def compile_dataset(path: utils.PathLike, bins: Sequence[utils.PathLike], build_
             if dataset_path != path:
                 logger.debug(f'Dataset is saved at {dataset_path}, but original repository path '
                              f'is {path}. Rebasing paths to binaries...')
-                rebased_bins = [utils.rebase_path(b, dataset_path)
-                                for b in bins]
+                os.environ[REBASED_DIR_ENVIRON_KEY] = str(dataset_path)
+                rebased_bins = [dataset_path /
+                                Path(b).relative_to(path) for b in bins]
+                rebased_bins_str = ', '.join(str(b) for b in rebased_bins)
+                original_bins_str = ', '.join(str(b) for b in bins)
+                logger.debug(f'Original binaries: {original_bins_str} ; '
+                             f'Rebased binaries: {rebased_bins_str}')
             else:
                 rebased_bins = bins
             # Compile repository
-            append_repo_path(dataset_path)
-            with manage(build_command, config=manage_config):
+            with manage(build_command, dataset_path, config=manage_config):
                 modified_decompiled_dataset = DecompiledCodeDataset.from_source_code_dataset(modified_source_dataset, rebased_bins,
                                                                                              config=dataset_config)
                 if generation_mode == 'temp' or generation_mode == 'path':
                     logger.debug('Removing backup modified source dataset '
                                  f'"{modified_source_dataset_file.name}"')
+                    Path(modified_source_dataset_file.name).unlink(
+                        missing_ok=True)
                     return modified_decompiled_dataset
                 # Duplicate the extract config without a transform to append
                 extract_config_dict = asdict(extract_config)
@@ -314,12 +266,10 @@ def compile_dataset(path: utils.PathLike, bins: Sequence[utils.PathLike], build_
                                                           manage_config=manage_config,
                                                           extract_config=no_transform_extract,
                                                           dataset_config=dataset_config,
-                                                          repo_arg_with=repo_arg_with,
                                                           generation_mode='path')
             return DecompiledCodeDataset(try_transform_metadata(d, s, modified_decompiled_dataset)
                                          for d, s in original_decompiled_dataset.values())
     else:
-        append_repo_path(path)
-        with manage(build_command, config=manage_config):
+        with manage(build_command, path, config=manage_config):
             return create_decompiled_dataset(path, bins, extract_config=extract_config,
                                              dataset_config=dataset_config)

@@ -10,6 +10,7 @@ import subprocess
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import Final, List, Optional, Sequence
 
+from codablellm.core import utils
 from codablellm.core.decompiler import Decompiler
 from codablellm.core.function import DecompiledFunction, DecompiledFunctionJSONObject
 from codablellm.core.utils import is_binary, PathLike
@@ -18,6 +19,8 @@ from codablellm.core.utils import is_binary, PathLike
 logger = logging.getLogger('codablellm')
 
 # TODO: handle halt_baddata();
+
+
 class Ghidra(Decompiler):
     '''
     The Ghidra decompiler.
@@ -70,24 +73,23 @@ class Ghidra(Decompiler):
                     output_file.close()
                     # Run decompile script
                     try:
-                        results = subprocess.run([self._ghidra_path, project_dir, 'codablellm', '-import', path,
-                                                  '-scriptPath', Ghidra.SCRIPT_PATH.parent, '-noanalysis',
-                                                  '-postScript', Ghidra.SCRIPT_PATH.name, output_path],
-                                                 check=True, capture_output=True)
+                        utils.execute_command([str(self._ghidra_path), project_dir, 'codablellm', '-import', str(path),
+                                               '-scriptPath', str(Ghidra.SCRIPT_PATH.parent), '-noanalysis',
+                                               '-postScript', Ghidra.SCRIPT_PATH.name, str(output_path),
+                                               '-deleteProject'],
+                                              task=f'Decompiling {path.name}...',
+                                              print_errors=False, log_level='debug')
                     except subprocess.CalledProcessError as e:
-                        logger.debug(f'Failed Ghidra command stdout:\n{
-                                     e.stdout.decode()}')
-                        raise ValueError(f'Ghidra command failed: "{e.cmd}"'
-                                         f'\nstderr:\n{e.stderr.decode()}') from e
+                        cmd_str = ' '.join(e.cmd)
+                        raise ValueError('Ghidra command failed: '
+                                         f'"{cmd_str}"') from e
                     # Deserialize decompiled functions
                     try:
                         json_objects: List[DecompiledFunctionJSONObject] = \
                             json.loads(output_path.read_text())
                     except json.JSONDecodeError as e:
-                        logger.debug(f'Failed Ghidra post-script stdout:\n{
-                                     results.stdout.decode()}')
-                        raise ValueError('Ghidra post-script failure '
-                                         f'\nstderr:\n{results.stderr.decode()}') from e
+                        raise ValueError('Could not deserialize decompiled Ghidra '
+                                         'functions') from e
                     else:
                         return [DecompiledFunction.from_decompiled_json(j) for j in json_objects]
                 finally:

@@ -10,31 +10,51 @@ In large codebases, functions are often missing comments that describe their pur
 - Provide training data for models focused on code summarization and instruction-following tasks  
 - Help build better AI tools for automatic documentation generation
 
-## Creating The Dataset
+## Creating The Datasets
+
+To support this use case, we generate two datasets:
+
+1. A dataset of the **original** source code functions (undocumented)
+2. A dataset of the **transformed** source code functions with generated comments (documented)
+
+These can later be merged or aligned for training models on before-and-after examples.
 
 ```python
-from codablellm import create_source_dataset, ExtractConfig, SourceCodeDatasetConfig
+from codablellm import create_source_dataset, ExtractConfig, SourceCodeDatasetConfig, SourceCodeDataset
 
 def add_docstring(source: SourceFunction) -> SourceFunction: ...
     # Use an LLM to generate a docstring for a function
 
-dataset = codablellm.create_source_dataset(
+# Original (undocumented) dataset
+original_dataset = create_source_dataset(
     'path/to/demo-c-repo',
     config=SourceCodeDatasetConfig(
-        transform=add_docstring,
-        generation_mode='temp-append' # Include both undocumented & documented code
+        generation_mode='path'  # Extracts code as-is
     )
 )
 
-dataset.save_as('docstring_dataset.csv')
+# Transformed (documented) dataset
+documented_dataset = create_source_dataset(
+    'path/to/demo-c-repo',
+    config=SourceCodeDatasetConfig(
+        transform=add_docstring,
+        generation_mode='temp'  # Applies transform to a temp copy
+    )
+)
+
+# Save both for external merging or pairing
+original_dataset.save_as('undocumented_dataset.csv')
+documented_dataset.save_as('docstring_dataset.csv')
 ```
 
 ## Dataset Contents
 
-Inside `docstring_dataset.csv`, each function will be included twice:
+The two datasets will contain:
 
-- The original, undocumented version
-- The transformed version with an auto-generated comment
+- `undocumented_dataset.csv`: functions as they originally appear in the codebase
+- `docstring_dataset.csv`: functions augmented with generated docstrings
+
+You can pair them based on function metadata (e.g., `uid`, file path, line number) to build aligned training examples.
 
 ### Example
 
@@ -57,7 +77,9 @@ int add(int a, int b) {
 
 ## Implications
 
-By generating comment-augmented datasets for codebases:
+By generating separate original and comment-augmented datasets:
 
-- Models can learn to generate summaries for both high-level and low-level code functions.
-- Fine-tuned models can help write documentation for legacy codebases.
+- Models can learn to generate summaries and docstrings given raw source code
+- This supports training instruction-following models for automatic code documentation
+- Fine-tuned models built on this data can assist in documenting legacy codebases or poorly commented projects
+

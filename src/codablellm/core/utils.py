@@ -2,10 +2,10 @@
 Core utility functions for codablellm.
 '''
 
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from itertools import dropwhile, takewhile
+import subprocess
 import time
-import threading
 from functools import wraps
 import importlib
 import json
@@ -14,10 +14,11 @@ import os
 from pathlib import Path
 from queue import Queue
 import tempfile
-from typing import (Any, Callable, Concatenate, Dict, Generator, Iterable, List, Optional, Protocol, Sequence, Set,
+from typing import (Any, Callable, Dict, Generator, Iterable, List, Literal, Optional, Protocol, Sequence, Set, Tuple,
                     Type, TypeVar, Union, overload)
 
-import tiktoken
+from rich import print
+from rich.prompt import Prompt
 from tree_sitter import Node, Parser
 
 from codablellm.exceptions import ExtraNotInstalled, TSParsingError
@@ -338,55 +339,6 @@ def load_checkpoint_data(prefix: str, delete_on_load: bool = False) -> List[JSON
     return checkpoint_data
 
 
-def rebase_path(original: PathLike, target: PathLike) -> Path:
-    '''
-    Rebases the `target` path relative to the shared root with the `original` path.
-
-    This function identifies the common prefix between the `original` and `target` paths
-    and returns a new path combining the shared path with the differing portion of the `target` path.
-
-    Parameters:
-        original: The base path to compare against.
-        target: The target path to rebase relative to the shared root with `original`.
-
-    Returns:
-        A `Path` object representing the rebased target path.
-    '''
-    original = Path(original).resolve()
-    target = Path(target).resolve()
-    shared_path = Path(*[p for p, _ in takewhile(lambda x: x[0] == x[1],
-                                                 zip(original.parts, target.parts))])
-    different_path = Path(*[p for _, p in dropwhile(lambda x: x[0] == x[1],
-                                                    zip(original.parts, target.parts))])
-    return shared_path / different_path
-
-
-@overload
-def normalize_sequence(value: Sequence[T]) -> Sequence[T]: ...
-
-
-@overload
-def normalize_sequence(value: str) -> List[str]: ...
-
-
-def normalize_sequence(value: Union[str, Sequence[T]]) -> Union[Sequence[T], List[str]]:
-    '''
-    Normalizes the input value into a sequence.
-
-    If a string is provided, it splits the string by whitespace and returns a list of substrings.
-    If a sequence is provided, it is returned unchanged.
-
-    Parameters:
-        value: A string or a sequence of items.
-
-    Returns:
-        A sequence of items or a list of strings if the input was a string.
-    '''
-    if isinstance(value, str):
-        return value.split()
-    return value
-
-
 def benchmark_function(task: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     '''
     Decorator that benchmarks the execution time of a function and logs the duration.
@@ -421,3 +373,101 @@ def benchmark_context(task: str) -> Generator[None, None, None]:
     yield
     end = time.perf_counter()
     logger.info(f'{task} took {end - start:.2f} seconds')
+
+
+Command = Union[Sequence[str]]
+'''
+A CLI command.
+'''
+
+CommandErrorHandler = Literal['interactive', 'ignore', 'none']
+'''
+Defines the strategies for handling errors encountered during the execution of a CLI command.
+
+Supported Error Handlers:
+    - **`ignore`**: The CLI command error is ignored, and execution continues without interruption.
+    - **`none`**: An exception is raised immediately upon encountering the CLI error.
+    - **`interactive`**: The user is prompted to resolve the error manually, allowing for
+    interactive handling of the issue.
+'''
+
+
+def add_command_args(command: Command, *args: Any) -> Command:
+    '''
+    Appends additional arguments to a CLI command.
+
+    Parameters:
+        command: The CLI command to append.
+        args: Additional arguments to append to the command.
+
+    Returns:
+        The updated command with the appended arguments.
+    '''
+    command = [command] if isinstance(command, str) else command
+    return [*command, *args]
+
+
+def execute_command(command: Command, error_handler: CommandErrorHandler = 'none',
+                    task: Optional[str] = None, ctx: AbstractContextManager[Any] = nullcontext(),
+                    log_level: Literal['debug', 'info'] = 'info',
+                    print_errors: bool = True, cwd: Optional[PathLike] = None) -> str:
+    '''
+    Executes a CLI command.
+
+    Parameters:
+        command: The CLI command to be executed.
+        error_handler: Specifies how to handle errors during command execution.
+        task: An optional description of the task being performed used for logging.
+        ctx: Context manager to use for the command execution.
+        log_level: The logging level for the task description.
+        print_errors: If `True`, prints the error output to the console.
+        cwd: The working directory to execute the command in.
+
+    Returns:
+        The output of the command.
+
+    Raises:
+        CalledProcessError: If the command fails and the error handler is set to 'none'.
+    '''
+    command_str = command if isinstance(command, str) \
+        else ' '.join(str(c) for c in command)
+    log_task = logger.debug if log_level == 'debug' else logger.info
+    if not task:
+        task = f'Executing: "{command_str}"'
+    if task:
+        log_task(task)
+    output = ''
+    try:
+        with ctx:
+            output = subprocess.check_output(command_str, shell=True, text=True,
+                                             cwd=cwd, stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as e:
+        output = e.output
+        logger.error(f'Command failed: "{command_str}"')
+        if print_errors:
+            print(f'[red][b]Command failed: "{command_str}"[/b]'
+                  f'\nOutput: {output}')
+        if error_handler == 'interactive':
+            result = Prompt.ask('A command error occurred. You can manually fix the issue and '
+                                'retry, ignore the error to continue, abort the process, or edit '
+                                'the command. How would you like to proceed?',
+                                choices=['retry', 'ignore', 'abort', 'edit'],
+                                case_sensitive=False, default='retry')
+            if result == 'retry':
+                execute_command(command, error_handler=error_handler,
+                                task=task)
+            elif result == 'abort':
+                error_handler = 'none'
+            elif result == 'edit':
+                edited_command = Prompt.ask('Enter the new command to execute',
+                                            default=f'"{command_str}"').strip('"\'')
+                execute_command(edited_command, error_handler=error_handler,
+                                task=task)
+        if error_handler == 'none':
+            raise
+    else:
+        log_task(f'Successfully executed "{command_str}"')
+    finally:
+        if output:
+            logger.debug(f'"{command_str}" output:\n"{output}"')
+    return output

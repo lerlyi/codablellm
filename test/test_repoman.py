@@ -4,12 +4,13 @@ from pandas import DataFrame
 import pytest
 
 from codablellm.core.extractor import ExtractConfig
-from codablellm.repoman import Command, ManageConfig, compile_dataset, manage
+from codablellm.core.utils import Command
+from codablellm.repoman import ManageConfig, compile_dataset, manage
 
 
 def test_manage(failing_command: Command) -> None:
     with pytest.raises(CalledProcessError):
-        with manage('make', ManageConfig(
+        with manage('make', 'path', ManageConfig(
             cleanup_command=failing_command,
             cleanup_error_handling='none'
         )):

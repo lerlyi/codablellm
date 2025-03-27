@@ -40,7 +40,7 @@ class ExtractorConfigOperation(str, Enum):
 class GenerationMode(str, Enum):
     PATH = 'path'
     TEMP = 'temp'
-    TEMP_APPEND = 'temp-append'
+#    TEMP_APPEND = 'temp-append'
 
 
 class CommandErrorHandler(str, Enum):
@@ -49,7 +49,12 @@ class CommandErrorHandler(str, Enum):
     NONE = 'none'
 
 
+class RunFrom(str, Enum):
+    CWD = 'cwd'
+    REPO = 'repo'
+
 # Default configurations
+
 
 DEFAULT_SOURCE_CODE_DATASET_CONFIG: Final[SourceCodeDatasetConfig] = \
     SourceCodeDatasetConfig(log_generation_warning=False)
@@ -224,18 +229,10 @@ TRANSFORM: Final[Optional[codablellm.extractor.Transform]] = Option(DEFAULT_SOUR
                                                                     'when extracting source code '
                                                                     'functions.',
                                                                     parser=parse_transform)
-REPO_BUILD_ARG: Final[bool] = Option(False, '--repo-build-arg', '-B',
-                                     help='Will append the build command with the path of the '
-                                     "repository's path as the first argument for the command "
-                                     'specified with --build. This may be useful '
-                                     'when --generation-mode temp or '
-                                     '--generation-mode temp-append is specified.')
-REPO_CLEANUP_ARG: Final[bool] = Option(False, '--repo-cleanup-arg', '-C',
-                                       help='Will append the cleanup command with the path of the '
-                                       "repository's path as the first argument for the command "
-                                       'specified with --cleanup. This may be useful '
-                                       'when --generation-mode temp or '
-                                       '--generation-mode temp-append is specified.')
+RUN_FROM: Final[RunFrom] = Option(DEFAULT_MANAGE_CONFIG.run_from,
+                                  help="Where to run build/clean commands from: 'repo' (the root "
+                                  "of the repository, whether real or temp) or 'cwd' (your "
+                                  'current shell directory). Useful for managing relative path behavior.')
 STRIP: Final[bool] = Option(DEFAULT_DECOMPILED_CODE_DATASET_CONFIG.strip,
                             help='If a decompiled dataset is being created, strip the symbols '
                             'after decompiling')
@@ -265,8 +262,7 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
             mapper: Mapper = MAPPER,
             max_decompiler_workers: Optional[int] = MAX_DECOMPILER_WORKERS,
             max_extractor_workers: Optional[int] = MAX_EXTRACTOR_WORKERS,
-            repo_build_arg: bool = REPO_BUILD_ARG,
-            repo_cleanup_arg: bool = REPO_CLEANUP_ARG,
+            run_from: RunFrom = RUN_FROM,
             strip: bool = STRIP,
             transform: Optional[codablellm.extractor.Transform] = TRANSFORM,
             use_checkpoint: Optional[bool] = USE_CHECKPOINT,
@@ -342,15 +338,9 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
                                                            extract_config=extract_config,
                                                            dataset_config=dataset_config)
         else:
-            if repo_build_arg or repo_cleanup_arg:
-                if repo_build_arg and repo_cleanup_arg:
-                    repo_arg_with = 'both'
-                else:
-                    repo_arg_with = 'build' if repo_build_arg else 'cleanup'
-            else:
-                repo_arg_with = None
             manage_config = ManageConfig(
                 cleanup_command=cleanup,
+                run_from=run_from,  # type: ignore
                 build_error_handling=build_error_handling,  # type: ignore
                 cleanup_error_handling=cleanup_error_handling)  # type: ignore
             dataset = codablellm.compile_dataset(repo, bins, build,
@@ -358,7 +348,6 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
                                                  extract_config=extract_config,
                                                  dataset_config=dataset_config,
                                                  generation_mode=generation_mode,  # type: ignore
-                                                 repo_arg_with=repo_arg_with
                                                  )
     else:
         dataset_config = SourceCodeDatasetConfig(

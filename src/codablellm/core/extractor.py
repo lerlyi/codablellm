@@ -276,6 +276,8 @@ class _CallableExtractor(CallablePoolProgress[Tuple[Extractor, Path, Optional[Pa
                                                                  config.extractor_args,
                                                                  config.extractor_kwargs)
             total = None
+        if not any(extractors_and_paths):
+            logger.warning('No files found to extract functions from')
         pool = ProcessPoolProgress(_extract, extractors_and_paths, Progress('Extracting functions...',
                                                                             total=total),
                                    max_workers=config.max_workers)
@@ -297,9 +299,10 @@ class _CallableExtractor(CallablePoolProgress[Tuple[Extractor, Path, Optional[Pa
                     continue
                 elif self.transform:
                     try:
+                        logger.debug(f'Transforming function "{function.name}"...')
                         function = self.transform(function)
                     except Exception as e:
-                        logger.warning('Error occured during transformation: '
+                        logger.warning('Error occurred during transformation: '
                                        f'{type(e).__name__}: {e}')
                         continue
                 results[function.uid] = function
