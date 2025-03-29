@@ -5,17 +5,18 @@ Code dataset generation.
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from contextlib import nullcontext
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import wraps
 import logging
 import os
 from pathlib import Path
 import shutil
 from tempfile import TemporaryDirectory
-from typing import (Any, Callable, Dict, Final, Iterable, Iterator, List, Literal,
+from typing import (Any, Callable, Dict, Final, Iterable, Iterator, List, Literal, NamedTuple, Optional,
                     Sequence, Tuple, TypeVar, Union, overload)
 
 from pandas import DataFrame
+from prefect import flow, task
 
 from codablellm.core import decompiler, extractor, utils
 from codablellm.core.dashboard import ProcessPoolProgress, Progress
@@ -103,7 +104,7 @@ class Dataset(ABC):
         logger.info(f'Successfully saved {path.name}')
 
 
-DatasetGenerationMode = Literal['path', 'temp']
+DatasetGenerationMode = Literal['path', 'temp', 'temp-append']
 '''
 How the dataset should be generated.
 
@@ -114,15 +115,14 @@ Generation Modes:
 
     - **`temp`**: Copies the repository to a temporary directory and generates the dataset there.
         - *If `extract_config.transform` is not provided, the mode defaults to `path`*.
+    - **`temp-append`**: Copies the repository to a temporary directory, applies the transformation
+    using `extract_config.transform`, and appends the transformed entries to the original source
+    code from the local repository.
+        - *If `extract_config.transform` is not provided, the mode defaults to `path`*.
 '''
-    # - **`temp-append`**: Copies the repository to a temporary directory, applies the transformation 
-    # using `extract_config.transform`, and appends the transformed entries to the original source 
-    # code from the local repository.
-    #     - *If `extract_config.transform` is not provided, the mode defaults to `path`*.
 
 
 # TODO: see if there's a way to make this a frozen dataclass
-
 
 @dataclass
 class SourceCodeDatasetConfig:
@@ -161,22 +161,6 @@ class SourceCodeDatasetConfig:
 
 
 T = TypeVar('T')
-
-
-def clear_checkpoints_after() -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    '''
-    Decorator that clears all extractor checkpoint files after successful execution of the decorated function.
-    '''
-    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-        @wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            result = func(*args, **kwargs)
-            for checkpoint_file in extractor.get_checkpoint_files():
-                checkpoint_file.unlink(missing_ok=True)
-            logger.debug(f'Removed all extractor checkpoints')
-            return result
-        return wrapper
-    return decorator
 
 
 class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
@@ -243,28 +227,41 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
         common_path = Path(os.path.commonpath(p.path for p in self.values()))
         return common_path if common_path.is_dir() else common_path.parent
 
-    @overload
     @classmethod
-    def from_repository(cls, path: utils.PathLike,
-                        config: SourceCodeDatasetConfig = SourceCodeDatasetConfig(
-                            log_generation_warning=False),
-                        as_callable_pool: Literal[False] = False) -> 'SourceCodeDataset': ...
+    def create_aligned_dataset(cls, original: Union[Sequence[SourceFunction], 'SourceCodeDataset'],
+                               transformed: Union[Sequence[SourceFunction], 'SourceCodeDataset']) -> 'SourceCodeDataset':
+        # Create temporary transformed and non-transformed datasets (if not already)
+        if not isinstance(original, SourceCodeDataset):
+            original = cls(function for function in original)
+        if not isinstance(transformed, SourceCodeDataset):
+            transformed = cls(function for function in transformed)
+        annotated_functions: List[SourceFunction] = []
+        for transformed_function in transformed.values():
+            # Check if UID's match in original dataset
+            function = original.get(transformed_function)
+            if function:
+                # Annotate with metadata
+                logger.debug(f'Annotating {function.uid}...')
+                annotated_function = replace(function,
+                                             _metadata={
+                                                 **function.metadata,
+                                                 'transformed_definition': transformed_function.definition,
+                                                 'transformed_class_name': transformed_function.class_name,
+                                             })
+                annotated_functions.append(annotated_function)
+            else:
+                logger.warning(
+                    f'Could not locate UID "{transformed_function.uid}"'
+                )
+        return cls(annotated_functions)
 
-    @overload
     @classmethod
-    def from_repository(cls, path: utils.PathLike,
+    @task
+    def from_repository(cls,
+                        path: utils.PathLike,
                         config: SourceCodeDatasetConfig = SourceCodeDatasetConfig(
-                            log_generation_warning=False),
-                        as_callable_pool: Literal[True] = True) -> extractor._CallableExtractor: ...
-
-    @classmethod
-    @utils.benchmark_function('Source code dataset creation')
-    @clear_checkpoints_after()
-    def from_repository(cls, path: utils.PathLike,
-                        config: SourceCodeDatasetConfig = SourceCodeDatasetConfig(
-                            log_generation_warning=False),
-                        as_callable_pool: bool = False,) -> Union['SourceCodeDataset',
-                                                                  extractor._CallableExtractor]:
+                            log_generation_warning=False)
+                        ) -> 'SourceCodeDataset':
         '''
         Creates a source code dataset from a local repository.
 
@@ -295,63 +292,37 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
         Returns:
             The generated source code dataset if `as_callable_pool` is `False`, or a `CallablePoolProgress` object if `as_callable_pool` is `True`.
         '''
-        if config.generation_mode == 'temp-append':
-            raise NotImplementedError('temp-append is not yet implemented')
-        if config.generation_mode != 'temp-append':
-            ctx = TemporaryDirectory(delete=config.delete_temp) if config.generation_mode == 'temp' \
-                else nullcontext()
-            with ctx as temp_dir:
-                if temp_dir:
-                    # If a temporary directory was created, copy the repository
-                    copied_repo_dir = Path(temp_dir) / Path(path).name
-                    shutil.copytree(path, copied_repo_dir)
-                    path = copied_repo_dir
-                extraction_pool = extractor.extract(path, as_callable_pool=True,
-                                                    config=config.extract_config)
-                if as_callable_pool:
-                    return extraction_pool
-                return cls(s for s in extraction_pool())
-        # Create a temp configuration for the transformed values
-        temp_config = SourceCodeDatasetConfig(
-            generation_mode='temp',
-            delete_temp=False,
-            extract_config=config.extract_config
-        )
-        transformed_extraction_pool = cls.from_repository(path,
-                                                          config=temp_config,
-                                                          as_callable_pool=True)
-        # Create a path configuration for the non-transformed values
-        path_config = SourceCodeDatasetConfig(
-            generation_mode='path',
-            extract_config=config.extract_config
-        )
-        original_extraction_pool = cls.from_repository(path,
-                                                       config=path_config,
-                                                       as_callable_pool=True)
-        original_functions, transformed_functions = \
-            ProcessPoolProgress.multi_progress(original_extraction_pool,
-                                               transformed_extraction_pool,
-                                               title='Generating Source Code Dataset')
-        # Create temporary transformed and non-transformed datasets
-        original_dataset = cls(s for s in original_functions)
-        transformed_dataset = cls(s for s in transformed_functions)
-        final_functions: List[SourceFunction] = []
-        with Progress('Annotating transformed functions...', total=len(transformed_functions)) as progress:
-            for transformed_function in transformed_dataset.values():
-                source_function = \
-                    original_dataset.get(transformed_function)  # type: ignore
-                if source_function:
-                    # Add transformed_definition and transformed_class_name metadata to the final dataset
-                    source_function.add_metadata({'transformed_definition': transformed_function.definition,
-                                                  'transformed_class_name': transformed_function.class_name,
-                                                  })
-                    final_functions.append(source_function)
-                    progress.advance()
-                else:
-                    logger.error(f'Could not locate UID "{transformed_function.uid}" in original '
-                                 'source code dataset')
-                    progress.advance(errors=True)
-            return cls(s for s in final_functions)
+        ctx = TemporaryDirectory(delete=config.delete_temp) \
+            if config.generation_mode == 'temp' or \
+            config.generation_mode == 'temp-append' \
+            else nullcontext()
+        with ctx as temp_dir:
+            # If a temporary directory was created, copy the repository
+            if temp_dir:
+                copied_repo_dir = Path(temp_dir) / Path(path).name
+                shutil.copytree(path, copied_repo_dir)
+                final_path = copied_repo_dir
+            else:
+                final_path = path
+            logger.info('Submitting extraction task...')
+            # Extract source code functions on the path/temp directory
+            futures = extractor.extract_task.submit(final_path,
+                                                    config.extract_config)
+            if config.generation_mode == 'temp-append':
+                # Create a copy of the extract config to extract the path without a transform
+                no_transform_extract_config = replace(
+                    config.extract_config,
+                    generation_mode='path'
+                )
+                path_futures = extractor.extract_task.submit(
+                    path,
+                    config=no_transform_extract_config
+                )
+                return cls.create_aligned_dataset(
+                    path_futures.result(),
+                    futures.result()
+                )
+            return cls(function for function in futures.result())
 
 
 def name_mapper(function: DecompiledFunction, uid: Union[SourceFunction, str]) -> bool:
@@ -416,7 +387,12 @@ class DecompiledCodeDatasetConfig:
     '''
 
 
-class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, SourceCodeDataset]]):
+class MappedFunction(NamedTuple):
+    decompiled_function: DecompiledFunction
+    source_functions: SourceCodeDataset
+
+
+class DecompiledCodeDataset(Dataset, Mapping[str, MappedFunction]):
     '''
     A dataset of decompiled functions mapped to their corresponding potential source functions.
 
@@ -425,7 +401,7 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
     '''
 
     def __init__(self,
-                 mappings: Iterable[Tuple[DecompiledFunction, SourceCodeDataset]]) -> None:
+                 mappings: Iterable[MappedFunction]) -> None:
         '''
         Initializes a new decompiled code dataset instance with a collection of mappings 
         between decompiled functions and their potential source functions.
@@ -434,13 +410,11 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
             mappings: An iterable collection of 2-tuples, where each tuple consists of the decompiled function and the corresponding potential source functions.
         '''
         super().__init__()
-        self._mapping: Dict[str,
-                            Tuple[DecompiledFunction, SourceCodeDataset]
-                            ] = {
-                                m[0].uid: m for m in mappings
+        self._mapping: Dict[str, MappedFunction] = {
+            m[0].uid: m for m in mappings
         }
 
-    def __getitem__(self, key: Union[str, DecompiledFunction]) -> Tuple[DecompiledFunction, SourceCodeDataset]:
+    def __getitem__(self, key: Union[str, DecompiledFunction]) -> MappedFunction:
         if isinstance(key, DecompiledFunction):
             return self[key.uid]
         return self._mapping[key]
@@ -451,7 +425,7 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
     def __len__(self) -> int:
         return len(self._mapping)
 
-    def get(self, key: Union[str, DecompiledFunction], default: T = None) -> Union[Tuple[DecompiledFunction, SourceCodeDataset], T]:
+    def get(self, key: Union[str, DecompiledFunction], default: T = None) -> Union[MappedFunction, T]:
         try:
             return self[key]
         except KeyError:
@@ -495,7 +469,7 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
                          'DataFrame to assume that the DataFrame is empty')
             return DataFrame()
 
-    def lookup(self, key: Union[str, SourceFunction]) -> List[Tuple[DecompiledFunction, SourceCodeDataset]]:
+    def lookup(self, key: Union[str, SourceFunction]) -> List[MappedFunction]:
         '''
         Finds all mappings where the given key may correspond to potential source functions.
 
@@ -534,45 +508,10 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
         Returns:
             A new dataset where all decompiled functions have been stripped.
         '''
-        return DecompiledCodeDataset((d.to_stripped(), s) for d, s in self.values())
+        return DecompiledCodeDataset(MappedFunction(d.to_stripped(), s) for d, s in self.values())
 
     @classmethod
-    @utils.benchmark_function('Mapping source code to decompiled code')
-    def _from_dataset_and_decompiled(cls, source_dataset: SourceCodeDataset,
-                                     decompiled_functions: Sequence[DecompiledFunction],
-                                     stripped: bool,
-                                     mapper: Mapper) -> 'DecompiledCodeDataset':
-
-        function_name_map: Dict[str, List[SourceFunction]] = {}
-        for source_function in source_dataset.values():
-            function_name_map.setdefault(SourceFunction.get_function_name(source_function.uid),
-                                         []).append(source_function)
-        mappings: List[Tuple[DecompiledFunction, SourceCodeDataset]] = []
-        logger.info('Mapping decompiled functions to source functions...')
-        with Progress('Mapping functions...', total=len(decompiled_functions)) as progress:
-            for decompiled_function in decompiled_functions:
-                source_functions = [s for s in function_name_map.get(decompiled_function.name, [])
-                                    if mapper(decompiled_function, s)]
-                if source_functions:
-                    if stripped:
-                        try:
-                            decompiled_function = decompiled_function.to_stripped()
-                        except (TSParsingError, ValueError):  # TODO: remove ValueError
-                            logger.error(
-                                f'Could not strip {decompiled_function.uid}')
-                            progress.advance(errors=True)
-                            progress.advance()
-                            continue
-                    mappings.append((decompiled_function,
-                                    SourceCodeDataset(source_functions)))
-                progress.advance()
-            logger.info(f'Successfully mapped {len(mappings)} decompiled functions to '
-                        f'{sum(len(f) for f in function_name_map.values())} source functions')
-            return cls(mappings)
-
-    @classmethod
-    @utils.benchmark_function('Decompiled code dataset creation')
-    @clear_checkpoints_after()
+    @task
     def from_repository(cls, path: utils.PathLike, bins: Sequence[utils.PathLike],
                         extract_config: extractor.ExtractConfig = extractor.ExtractConfig(),
                         dataset_config: DecompiledCodeDatasetConfig = DecompiledCodeDatasetConfig()) -> 'DecompiledCodeDataset':
@@ -620,56 +559,84 @@ class DecompiledCodeDataset(Dataset, Mapping[str, Tuple[DecompiledFunction, Sour
         if not any(bins):
             raise ValueError('Must at least specify one binary')
         # Extract source code functions and decompile binaries in parallel
-        original_extraction_pool = extractor.extract(path, as_callable_pool=True,
-                                                     config=extract_config)
-        decompile_pool = decompiler.decompile(bins, as_callable_pool=True,
-                                              config=dataset_config.decompiler_config)
-        source_functions, decompiled_functions = \
-            ProcessPoolProgress.multi_progress(original_extraction_pool,
-                                               decompile_pool,
-                                               title='Generating Decompiled Code Dataset')
-        source_dataset = SourceCodeDataset(source_functions)
-        return cls._from_dataset_and_decompiled(source_dataset, decompiled_functions,
-                                                dataset_config.strip, dataset_config.mapper)
+        future_functions = extractor.extract_task.submit(path,
+                                                         config=extract_config)
+        future_bins = [task(decompiler.decompile).submit(bin, config=dataset_config.decompiler_config)
+                       for bin in bins]
+        return cls.map_functions(cls, future_functions.result(),
+                                 [f for future in future_bins for f in future.result()],
+                                 config=dataset_config)
+
+    @staticmethod
+    def _build_function_name_map(source_functions: Iterable[SourceFunction]) -> Dict[str, List[SourceFunction]]:
+        fn_map: Dict[str, List[SourceFunction]] = {}
+        for source_function in source_functions:
+            fn_map.setdefault(SourceFunction.get_function_name(source_function.uid),
+                              []).append(source_function)
+        return fn_map
+
+    @staticmethod
+    @task
+    def _map_decompiled_function(
+        decompiled_function: DecompiledFunction,
+        function_name_map: Dict[str, List[SourceFunction]],
+        config: DecompiledCodeDatasetConfig
+    ) -> Optional[MappedFunction]:
+        source_candidates = function_name_map.get(decompiled_function.name, [])
+        source_functions = [
+            s for s in source_candidates if config.mapper(decompiled_function, s)]
+
+        if not source_functions:
+            return None
+
+        if config.strip:
+            stripped = task(decompiled_function.to_stripped).submit()
+            decompiled_function = stripped.result()  # Wait for strip
+            if decompiled_function is None:
+                return None
+
+        return MappedFunction(decompiled_function, SourceCodeDataset(source_functions))
 
     @classmethod
-    @utils.benchmark_function('Decompiled code dataset creation')
-    @clear_checkpoints_after()
-    def from_source_code_dataset(cls, dataset: SourceCodeDataset, bins: Sequence[utils.PathLike],
-                                 config: DecompiledCodeDatasetConfig = DecompiledCodeDatasetConfig()) -> 'DecompiledCodeDataset':
-        '''
-        Creates a decompiled code dataset from a source code dataset and binaries.
+    def map_functions(cls,
+                      source: Union[SourceCodeDataset, Sequence[SourceFunction]],
+                      decompiled: Union['DecompiledCodeDataset', Sequence[DecompiledFunction]],
+                      config: DecompiledCodeDatasetConfig = DecompiledCodeDatasetConfig()
+                      ) -> 'DecompiledCodeDataset':
 
-        This method decompiles the provided binaries, and generates a dataset of decompiled
-        functions mapped to their corresponding potential source code functions based on the
-        provided source code dataset and decompiled code dataset configuration.
+        # Normalize source
+        if not isinstance(source, SourceCodeDataset):
+            source = SourceCodeDataset(f for f in source)
 
-        Example:
-            ```py
-            DecompiledCodeDataset.from_source_code_dataset(dataset,
-                                                [
-                                                'path/to/my/repository/bin1.exe',
-                                                'path/to/my/repository/bin2.exe'
-                                                ]
-                                                config=DecompiledCodeDatasetConfig(
-                                                    strip=True
-                                                )
-                                             )
-            ```
+        # Normalize decompiled
+        if isinstance(decompiled, DecompiledCodeDataset):
+            decompiled = [m.decompiled_function for m in decompiled.values()]
 
-            The above example creates a decompiled code dataset from `dataset`,
-            decompiles the binaries `bin1.exe` and `bin2.exe`, and strips the symbols after
-            decompilation.
+        logger.info("Building function name map...")
+        function_name_map = DecompiledCodeDataset._build_function_name_map(
+            source.values()
+        )
 
-        Parameters:
-            dataset: A source code dataset to generate the dataset from.
-            bins: A sequence of paths to the built binaries of the repository that should be decompiled.
-            config: Configuration settings for generating the decompiled code dataset. 
+        logger.info("Mapping decompiled functions to source functions...")
+        mapped_futures = [
+            DecompiledCodeDataset._map_decompiled_function.submit(
+                func, function_name_map, config)
+            for func in decompiled
+        ]
 
-        Returns:
-            The generated dataset containing mappings of decompiled functions to their potential source code functions.
-        '''
-        return cls._from_dataset_and_decompiled(dataset, decompiler.decompile(bins,
-                                                                              config=config.decompiler_config),
-                                                config.strip,
-                                                config.mapper)
+        # Gather results and filter None
+        mappings = [f.result() for f in mapped_futures]
+        mappings = [m for m in mappings if m]
+
+        logger.info(f"Successfully mapped {len(mappings)} decompiled functions to "
+                    f"{sum(len(f) for f in function_name_map.values())} source functions")
+        return DecompiledCodeDataset(mappings)
+
+    @classmethod
+    @flow
+    def map_functions_flow(cls,
+                           source: Union[SourceCodeDataset, Sequence[SourceFunction]],
+                           decompiled: Union['DecompiledCodeDataset', Sequence[DecompiledFunction]],
+                           config: DecompiledCodeDatasetConfig = DecompiledCodeDatasetConfig()
+                           ) -> 'DecompiledCodeDataset':
+        return cls.map_functions(source, decompiled, config=config)

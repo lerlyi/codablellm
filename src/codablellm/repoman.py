@@ -10,6 +10,8 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Final, Generator, Literal, Optional, Sequence, Tuple
 
+from prefect import flow, task
+
 from codablellm.core import utils
 from codablellm.core.dashboard import Progress
 from codablellm.core.extractor import ExtractConfig
@@ -32,7 +34,6 @@ Set automatically when using the `temp` generation mode.
 '''
 
 
-@utils.benchmark_function('Building repository')
 def build(command: utils.Command, error_handler: Optional[utils.CommandErrorHandler] = None,
           show_progress: Optional[bool] = None, cwd: Optional[utils.PathLike] = None) -> None:
     '''
@@ -52,7 +53,6 @@ def build(command: utils.Command, error_handler: Optional[utils.CommandErrorHand
                                                  cwd=cwd))
 
 
-@utils.benchmark_function('Cleaning up repository')
 def cleanup(command: utils.Command, error_handler: Optional[utils.CommandErrorHandler] = None,
             show_progress: Optional[bool] = None, cwd: Optional[utils.PathLike] = None) -> None:
     '''
@@ -130,24 +130,31 @@ def manage(build_command: utils.Command, path: utils.PathLike,
                 show_progress=config.show_progress)
 
 
-create_source_dataset = SourceCodeDataset.from_repository
-'''
-Creates a `SourceCodeDataset` from a repository.
-'''
-
-create_decompiled_dataset = DecompiledCodeDataset.from_repository
-'''
-Creates a `DecompiledCodeDataset` from a repository.
-'''
+@flow
+def create_source_dataset(path: utils.PathLike,
+                          config: SourceCodeDatasetConfig = SourceCodeDatasetConfig(
+                              log_generation_warning=False)
+                          ) -> SourceCodeDataset:
+    return SourceCodeDataset.from_repository(path, config=config).result()
 
 
-@utils.benchmark_function('Compiling dataset')
-def compile_dataset(path: utils.PathLike, bins: Sequence[utils.PathLike], build_command: utils.Command,
-                    manage_config: ManageConfig = ManageConfig(),
-                    extract_config: ExtractConfig = ExtractConfig(),
-                    dataset_config: DecompiledCodeDatasetConfig = DecompiledCodeDatasetConfig(),
-                    generation_mode: DatasetGenerationMode = 'temp',
-                    ) -> DecompiledCodeDataset:
+@flow
+def create_decompiled_dataset(path: utils.PathLike,
+                              bins: Sequence[utils.PathLike],
+                              extract_config: ExtractConfig = ExtractConfig(),
+                              dataset_config: DecompiledCodeDatasetConfig = DecompiledCodeDatasetConfig()
+                              ) -> DecompiledCodeDataset:
+    return DecompiledCodeDataset.from_repository(path, bins, extract_config=extract_config,
+                                                 dataset_config=dataset_config).result()
+
+
+@task
+def compile_dataset_task(path: utils.PathLike, bins: Sequence[utils.PathLike], build_command: utils.Command,
+                         manage_config: ManageConfig = ManageConfig(),
+                         extract_config: ExtractConfig = ExtractConfig(),
+                         dataset_config: DecompiledCodeDatasetConfig = DecompiledCodeDatasetConfig(),
+                         generation_mode: DatasetGenerationMode = 'temp',
+                         ) -> DecompiledCodeDataset:
     '''
     Builds a local repository and creates a `DecompiledCodeDataset` by decompiling the specified binaries.
 
@@ -194,9 +201,17 @@ def compile_dataset(path: utils.PathLike, bins: Sequence[utils.PathLike], build_
 
     Returns:
         The generated dataset containing mappings of decompiled functions to their potential source code functions.
-'''
-    if generation_mode == 'temp-append':
-        raise NotImplementedError('The temp-append generation mode is not implemented yet.')
+    '''
+    # Normalize binaries
+    bins = [bins] if isinstance(bins, str) else bins
+    # Build repository
+    with manage(build_command, path, config=manage_config):
+        future = DecompiledCodeDataset.from_repository.submit(DecompiledCodeDataset, path, bins, extract_config=extract_config,
+                                                              dataset_config=dataset_config)
+        if generation_mode != 'temp-append':
+            return future.result()
+        
+
     def try_transform_metadata(decompiled_function: DecompiledFunction,
                                source_functions: SourceCodeDataset,
                                other_dataset: DecompiledCodeDataset) -> Tuple[DecompiledFunction, SourceCodeDataset]:
@@ -273,3 +288,15 @@ def compile_dataset(path: utils.PathLike, bins: Sequence[utils.PathLike], build_
         with manage(build_command, path, config=manage_config):
             return create_decompiled_dataset(path, bins, extract_config=extract_config,
                                              dataset_config=dataset_config)
+
+
+@flow
+def compile_dataset(path: utils.PathLike, bins: Sequence[utils.PathLike], build_command: utils.Command,
+                    manage_config: ManageConfig = ManageConfig(),
+                    extract_config: ExtractConfig = ExtractConfig(),
+                    dataset_config: DecompiledCodeDatasetConfig = DecompiledCodeDatasetConfig(),
+                    generation_mode: DatasetGenerationMode = 'temp',
+                    ) -> DecompiledCodeDataset:
+    return compile_dataset_task(path, bins, build_command, manage_config=manage_config,
+                                extract_config=extract_config, dataset_config=dataset_config,
+                                generation_mode=generation_mode)

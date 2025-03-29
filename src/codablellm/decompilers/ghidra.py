@@ -57,7 +57,7 @@ class Ghidra(Decompiler):
                 f"{Ghidra.ENVIRON_KEY} is not set to Ghidra's analyzeHeadless command")
         self._ghidra_path = ghidra_path
 
-    def decompile(self, path: PathLike) -> Sequence[DecompiledFunction]:
+    def get_functions(self, path: PathLike) -> Sequence[DecompiledFunction]:
         path = Path(path)
         if not is_binary(path):
             raise ValueError('path must be an existing binary.')

@@ -34,7 +34,7 @@ FAILING_BIN = 'FAILED'
 
 class MockDecompiler(Decompiler):
 
-    def decompile(self, path: utils.PathLike) -> Sequence[DecompiledFunction]:
+    def get_functions(self, path: utils.PathLike) -> Sequence[DecompiledFunction]:
         print('MockDecompiler called')
         if path == FAILING_BIN:
             raise subprocess.CalledProcessError(1, path)
@@ -45,7 +45,7 @@ class MockDecompiler(Decompiler):
 
 
 def _decompile(path: utils.PathLike, *args: Any, **kwargs: Any) -> Sequence[DecompiledFunction]:
-    return MockDecompiler().decompile(path)
+    return MockDecompiler().get_functions(path)
 
 
 @fixture(autouse=True)

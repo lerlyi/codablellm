@@ -166,7 +166,7 @@ DECOMPILE: Final[bool] = Option(False, '--decompile / --source', '-d / -s',
                                 help='If the language supports decompiled code mapping, use '
                                 '--decompiler to decompile the binaries specified by the bins '
                                 'argument and add decompiled code to the dataset.')
-DECOMPILER: Final[str] = Option(codablellm.decompiler.DECOMPILER['class_path'],
+DECOMPILER: Final[str] = Option(codablellm.decompiler._decompiler['class_path'],
                                 help='Decompiler to use.',
                                 metavar='CLASSPATH')
 DEBUG: Final[bool] = Option(False, '--debug', callback=toggle_debug_logging,
@@ -284,11 +284,11 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
             raise BadParameter('Could not decode extractor configuration file.',
                                param_hint='--extractors') from e
         if operation == ExtractorConfigOperation.SET:
-            codablellm.extractor.set_extractors(configured_extractors)
+            codablellm.extractor.set_registered(configured_extractors)
         else:
             for language, class_path in configured_extractors.items():
                 order = 'last' if operation == ExtractorConfigOperation.APPEND else 'first'
-                codablellm.extractor.add_extractor(language, class_path,
+                codablellm.extractor.register(language, class_path,
                                                    order=order)
     if url:
         # Download remote repository

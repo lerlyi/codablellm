@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-ARG PYTHON_VERSION=3.13-slim
+ARG PYTHON_VERSION=3.12-slim
 FROM python:${PYTHON_VERSION} AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -35,7 +35,7 @@ RUN adduser --disabled-password --gecos "" --shell "/sbin/nologin" --uid "${UID}
 COPY requirements.txt .
 RUN python -m pip install --upgrade pip
 RUN --mount=type=cache,target=/root/.cache/pip \
-    python -m pip install -r requirements.txt
+    python -m pip install .[all]
 
 # Copy source and install package
 COPY . .

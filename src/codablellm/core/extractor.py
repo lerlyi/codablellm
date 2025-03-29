@@ -10,24 +10,34 @@ import importlib
 import logging
 from pathlib import Path
 from typing import (
-    Any, Callable, Dict, Final, Generator, List, Literal, Mapping, Optional, OrderedDict, Sequence, Set,
-    Tuple, Union, overload)
+    Any, Callable, Dict, Final, List, Literal, Mapping, NamedTuple, Optional, OrderedDict,
+    Sequence, Set
+)
 
-from codablellm.core import utils
-from codablellm.core.dashboard import CallablePoolProgress, ProcessPoolProgress, Progress
+from prefect import flow, task
+
 from codablellm.core.function import SourceFunction
-from codablellm.core.utils import PathLike, benchmark_function
-from codablellm.exceptions import ExtractorNotFound
+from codablellm.core.utils import PathLike
 
-EXTRACTORS: Final[OrderedDict[str, str]] = OrderedDict({
-    'C': 'codablellm.languages.c.CExtractor'
+
+class RegisteredExtractor(NamedTuple):
+    language: str
+    class_path: str
+
+
+_EXTRACTORS: Final[OrderedDict[str, RegisteredExtractor]] = OrderedDict({
+    'C': RegisteredExtractor('C', 'codablellm.languages.c.CExtractor')
 })
 
 logger = logging.getLogger('codablellm')
 
 
-def add_extractor(language: str, class_path: str,
-                  order: Optional[Literal['first', 'last']] = None) -> None:
+def get_registered() -> Sequence[RegisteredExtractor]:
+    return list(_EXTRACTORS.values())
+
+
+def register(language: str, class_path: str,
+             order: Optional[Literal['first', 'last']] = None) -> None:
     '''
     Registers a new source code extractor for a given language.
 
@@ -36,26 +46,41 @@ def add_extractor(language: str, class_path: str,
         class_path: The full import path to the extractor class.
         order: Optional order for insertion. If 'first', prepends the extractor; if 'last', appends it.
     '''
-    EXTRACTORS[language] = class_path
+    registered_extractor = RegisteredExtractor('C', class_path)
+    if _EXTRACTORS.setdefault(language, registered_extractor) != registered_extractor:
+        raise ValueError(f'"{language}" is already a registered extractor')
     if order:
-        logger.info('Prepended ' if order == 'first' else 'Appended '
-                    f'{language} source code extractor "{class_path}"')
-        EXTRACTORS.move_to_end(language, last=order == 'last')
-    else:
-        logger.info(f'Added {language} source code extractor "{class_path}"')
+        _EXTRACTORS.move_to_end(language, last=order == 'last')
+    # Instantiate extractor to ensure it can be properly imported
+    try:
+        create_extractor(language)
+    except:
+        logger.error(f'Could not create "{language}" extractor')
+        unregister(language)
+        raise
+    logger.info(f'Registered "{language}" extractor at "{class_path}"')
 
 
-def set_extractors(extractors: Mapping[str, str]) -> None:
+def unregister(language: str) -> None:
+    del _EXTRACTORS[language]
+    logger.info(f'Unregistered "{language}" extractor')
+
+
+def unregister_all() -> None:
+    _EXTRACTORS.clear()
+    logger.info('Unregistered all extractors')
+
+
+def set_registered(extractors: Mapping[str, str]) -> None:
     '''
     Replaces all existing source code extractors with a new set.
 
     Parameters:
         extractors: A mapping from language names to extractor class paths.
     '''
-    EXTRACTORS.clear()
-    logger.info('Source code extractors cleared')
+    unregister_all()
     for language, class_path in extractors.items():
-        add_extractor(language, class_path)
+        register(language, class_path)
 
 
 class Extractor(ABC):
@@ -94,7 +119,7 @@ class Extractor(ABC):
         pass
 
 
-def get_extractor(language: str, *args: Any, **kwargs: Any) -> Extractor:
+def create_extractor(language: str, *args: Any, **kwargs: Any) -> Extractor:
     '''
     Retrieves the registered extractor instance for the specified language.
 
@@ -109,52 +134,12 @@ def get_extractor(language: str, *args: Any, **kwargs: Any) -> Extractor:
     Raises:
         ExtractorNotFound: If no extractor is registered for the specified language.
     '''
-    if language in EXTRACTORS:
-        module_path, class_name = EXTRACTORS[language].rsplit('.', 1)
+    if language in _EXTRACTORS:
+        module_path, class_name = _EXTRACTORS[language].class_path.rsplit(
+            '.', 1)
         module = importlib.import_module(module_path)
         return getattr(module, class_name)(*args, **kwargs)
-    raise ExtractorNotFound(f'Unsupported language: {language}')
-
-
-def _extract(extractor_and_paths: Tuple[Extractor, Path, Optional[Path]]) -> Sequence[SourceFunction]:
-    extractor, file, repo = extractor_and_paths
-    logger.debug(f'Extracting {file}...')
-    return extractor.extract(file, repo_path=repo)
-
-
-EXTRACTOR_CHECKPOINT_PREFIX: Final[str] = 'codablellm_extractor'
-
-
-def get_checkpoint_files() -> List[Path]:
-    '''
-    Retrieves all checkpoint files related to source function extraction.
-
-    Returns:
-        A list of checkpoint files.
-    '''
-    return utils.get_checkpoint_files(EXTRACTOR_CHECKPOINT_PREFIX)
-
-
-def save_checkpoint_file(source_code_functions: List[SourceFunction]) -> None:
-    '''
-    Saves a checkpoint file containing extracted source functions.
-
-    Parameters:
-        source_code_functions: A list of `SourceFunction` instances to save as checkpoint data.
-    '''
-    utils.save_checkpoint_file(EXTRACTOR_CHECKPOINT_PREFIX,
-                               source_code_functions)
-
-
-def load_checkpoint_data() -> List[SourceFunction]:
-    '''
-    Loads checkpoint data for source functions and clears the checkpoint files after loading.
-
-    Returns:
-        A list of `SourceFunction` instances restored from checkpoint data.
-    '''
-    return [SourceFunction.from_json(j)  # type: ignore
-            for j in utils.load_checkpoint_data(EXTRACTOR_CHECKPOINT_PREFIX, delete_on_load=True)]
+    raise ValueError(f'"{language}" is not a registered extractor')
 
 
 Transform = Callable[[SourceFunction], SourceFunction]
@@ -220,111 +205,10 @@ class ExtractConfig:
                              'exclusive_subpaths')
         if self.checkpoint < 0:
             raise ValueError('Checkpoint must be a non-negative integer')
-        for extractor in self.extractor_args:
-            if extractor not in EXTRACTORS:
-                raise ValueError(f'"{extractor}" is not a known extractor')
-        for extractor in self.extractor_kwargs:
-            if extractor not in EXTRACTORS:
-                raise ValueError(f'"{extractor}" is not a known extractor')
 
 
-class _CallableExtractor(CallablePoolProgress[Tuple[Extractor, Path, Optional[Path]], Sequence[SourceFunction],
-                                              List[SourceFunction]]):
-
-    def __init__(self, path: PathLike, config: ExtractConfig) -> None:
-
-        def is_relative_to(parent: Path, child: Path) -> bool:
-            try:
-                parent.relative_to(child)
-            except ValueError:
-                return False
-            return True
-
-        if config.exclude_subpaths & config.exclusive_subpaths:
-            raise ValueError('Cannot have overlapping paths in exclude_subpaths and '
-                             'exclusive_subpaths')
-        if config.checkpoint < 0:
-            raise ValueError('Checkpoint must be a non-negative integer')
-        self.checkpoint = config.checkpoint
-        self.use_checkpoint = config.use_checkpoint
-        path = Path(path)
-        if not all(is_relative_to(path, p)
-                   for subpaths in [config.exclusive_subpaths, config.exclude_subpaths] for p in subpaths):
-            raise ValueError('All subpaths must be relative to the '
-                             'repository.')
-
-        def generate_extractors_and_paths(path: PathLike, extract_as_repo: bool,
-                                          extractor_args: Dict[str, Sequence[Any]],
-                                          extractor_kwargs: Dict[str, Dict[str, Any]]) -> Generator[Tuple[Extractor, Path, Optional[Path]], None, None]:
-            repo_path = None if not extract_as_repo else Path(path)
-            for language in EXTRACTORS:
-                extractor = get_extractor(language, *extractor_args.get(language, []),
-                                          **extractor_kwargs.get(language, {}))
-                for file in extractor.get_extractable_files(path):
-                    if not any(is_relative_to(p, file) for p in config.exclude_subpaths) \
-                            or any(is_relative_to(p, file) for p in config.exclusive_subpaths):
-                        yield extractor, file, repo_path
-
-        if config.accurate_progress:
-            extractors_and_paths = list(generate_extractors_and_paths(path, config.extract_as_repo,
-                                                                      config.extractor_args,
-                                                                      config.extractor_kwargs))
-            total = len(extractors_and_paths)
-            logger.info(f'Located {total} extractable source code files')
-        else:
-            extractors_and_paths = generate_extractors_and_paths(path, config.extract_as_repo,
-                                                                 config.extractor_args,
-                                                                 config.extractor_kwargs)
-            total = None
-        if not any(extractors_and_paths):
-            logger.warning('No files found to extract functions from')
-        pool = ProcessPoolProgress(_extract, extractors_and_paths, Progress('Extracting functions...',
-                                                                            total=total),
-                                   max_workers=config.max_workers)
-        super().__init__(pool)
-        self.transform = config.transform
-
-    @benchmark_function('Extracting source code functions')
-    def get_results(self) -> List[SourceFunction]:
-        results: Dict[str, SourceFunction] = {}
-        if self.use_checkpoint:
-            results = {f.uid: f for f in load_checkpoint_data()}
-            if results:
-                logger.info(f'Loaded {len(results)} checkpoint results')
-        for functions in self.pool:
-            for function in functions:
-                if function.uid in results:
-                    logger.warning(f'Function "{function.uid}" was already extracted. Ignoring '
-                                   'duplicate entry')
-                    continue
-                elif self.transform:
-                    try:
-                        logger.debug(f'Transforming function "{function.name}"...')
-                        function = self.transform(function)
-                    except Exception as e:
-                        logger.warning('Error occurred during transformation: '
-                                       f'{type(e).__name__}: {e}')
-                        continue
-                results[function.uid] = function
-                if self.checkpoint > 0 and len(results) % self.checkpoint == 0:
-                    save_checkpoint_file(list(results.values()))
-                    logger.info('Extraction checkpoint saved')
-        return list(results.values())
-
-
-@overload
-def extract(path: PathLike, config: ExtractConfig = ExtractConfig(),
-            as_callable_pool: Literal[False] = False) -> List[SourceFunction]: ...
-
-
-@overload
-def extract(path: PathLike, config: ExtractConfig = ExtractConfig(),
-            as_callable_pool: Literal[True] = True) -> _CallableExtractor: ...
-
-
-def extract(path: PathLike, config: ExtractConfig = ExtractConfig(),
-            as_callable_pool: bool = False) -> Union[List[SourceFunction],
-                                                     _CallableExtractor]:
+@task
+def extract_task(path: PathLike, config: ExtractConfig = ExtractConfig()) -> List[SourceFunction]:
     '''
     Extracts source functions from the given path using the specified configuration.
 
@@ -339,7 +223,30 @@ def extract(path: PathLike, config: ExtractConfig = ExtractConfig(),
     Returns:
         Either a list of extracted `SourceFunction` instances or a `_CallableExtractor` for deferred execution.
     '''
-    extractor = _CallableExtractor(path, config)
-    if as_callable_pool:
-        return extractor
-    return extractor()
+    # Collect extractable files
+    logger.info('Collecting extractable source code files...')
+    file_extractor_map: Dict[Path, Extractor] = {}
+    for language, _ in get_registered():
+        extractor = create_extractor(language, *config.extractor_args.get(language, []),
+                                     **config.extractor_kwargs.get(language, {}))
+        # Locate extractable files
+        files = extractor.get_extractable_files(path)
+        if not any(files):
+            logger.debug(f'No "{language}" files were located')
+        for file in files:
+            if file_extractor_map.setdefault(file, extractor) != extractor:
+                logger.info(
+                    f'Extractor was already specified for {file.name}'
+                )
+    if not any(file_extractor_map):
+        logger.warning('No source code files found to extract')
+    # Submit extraction tasks
+    logger.info('Submitting extraction tasks...')
+    futures = [task(extractor.extract).submit(file, repo_path=path)
+               for file, extractor in file_extractor_map.items()]
+    return [function for future in futures for function in future.result()]
+
+
+@flow
+def extract(path: PathLike, config: ExtractConfig = ExtractConfig()) -> List[SourceFunction]:
+    return extract_task(path, config=config)

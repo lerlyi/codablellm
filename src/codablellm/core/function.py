@@ -1,10 +1,10 @@
 '''
 Classes pertaining to functions used in code datasets.
 '''
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field
 import logging
 from pathlib import Path
-from typing import Any, Dict, Final, Mapping, Optional, TypedDict, Union, no_type_check
+from typing import Any, Dict, Final, Mapping, Optional, TypedDict, no_type_check
 import uuid
 
 from tree_sitter import Node, Parser
@@ -45,7 +45,7 @@ class Function(SupportsJSON):
     '''
     The source code of the function.
     '''
-    _metadata: Dict[str, Any] = field(default_factory=dict, init=False)
+    _metadata: Mapping[str, Any] = field(default_factory=dict, kw_only=True)
 
     def __post_init__(self) -> None:
         if not self.path.is_absolute():
@@ -60,45 +60,6 @@ class Function(SupportsJSON):
             A mapping containing the metadata associated with the function.
         '''
         return {k: v for k, v in self._metadata.items()}
-
-    def set_metadata(self, metadata: Mapping[str, Any]) -> None:
-        '''
-        Sets the metadata associated with the function. This will overwrite any existing metadata.
-
-        Parameters:
-            metadata: A mapping containing the metadata to associate with the function.
-
-        Raises:
-            KeyError: If the metadata contains a key that is the same as an existing class field.
-        '''
-        class_fields = {f.name for f in fields(self)}
-        for key, value in metadata.items():
-            if key in class_fields:
-                raise KeyError(f'Cannot set metadata "{key}" '
-                               'to an existing class field')
-            self._metadata[key] = value
-
-    def add_metadata(self, metadata: Mapping[str, Any]) -> None:
-        '''
-        Adds metadata to the function. This will overwrite any existing metadata with the same key.
-
-        Parameters:
-            metadata: A mapping containing the metadata to add to the function.
-        '''
-        return self.set_metadata({**metadata, **self._metadata})
-
-    def remove_metadata(self, key: str) -> None:
-        '''
-        Removes a metadata entry from the function.
-
-        Parameters:
-            key: The key of the metadata entry to remove.
-        '''
-        del self._metadata[key]
-
-    def to_json(self) -> FunctionJSONObject:
-        return {'uid': self.uid, 'path': str(self.path), 'definition': self.definition,
-                'name': self.name, 'metadata': self._metadata}
 
     @staticmethod
     def create_uid(file_path: Path, name: str, repo_path: Optional[Path] = None) -> str:
@@ -145,11 +106,14 @@ class Function(SupportsJSON):
         '''
         return uid.split('::')[-1]
 
+    def to_json(self) -> FunctionJSONObject:
+        return {'definition': self.definition, 'metadata': dict(self.metadata), 'name': self.name,
+                'path': str(self.path), 'uid': self.uid}
+
     @classmethod
     def from_json(cls, json_obj: FunctionJSONObject) -> 'Function':
         function = cls(json_obj['uid'], Path(json_obj['path']), json_obj['name'],
-                       json_obj['definition'])
-        function.set_metadata(json_obj['metadata'])
+                       json_obj['definition'], _metadata=json_obj['metadata'])
         return function
 
 
@@ -227,8 +191,8 @@ class SourceFunction(Function):
                                          self.language,
                                          self.start_byte,
                                          self.start_byte + len(definition),
-                                         class_name=self.class_name)
-        source_function.set_metadata({**metadata, **self.metadata})
+                                         class_name=self.class_name,
+                                         _metadata={**metadata, **self.metadata})
         if write_back:
             logger.debug('Writing back modified definition to '
                          f'{source_function.path.name}...')
@@ -284,8 +248,8 @@ class SourceFunction(Function):
     def from_json(cls, json_obj: SourceFunctionJSONObject) -> 'SourceFunction':
         function = cls(json_obj['uid'], Path(json_obj['path']), json_obj['name'],
                        json_obj['definition'], json_obj['language'], json_obj['start_byte'],
-                       json_obj['end_byte'], json_obj['class_name'])
-        function.set_metadata(json_obj['metadata'])
+                       json_obj['end_byte'], json_obj['class_name'],
+                       _metadata=json_obj['metadata'])
         return function
 
     @classmethod
@@ -312,8 +276,7 @@ class SourceFunction(Function):
         '''
         function = cls(SourceFunction.create_uid(file_path, name, repo_path=repo_path, class_name=class_name),
                        file_path, name, definition, language, start_byte, end_byte,
-                       class_name=class_name)
-        function.set_metadata(metadata)
+                       class_name=class_name, _metadata=metadata)
         return function
 
 
@@ -415,8 +378,8 @@ class DecompiledFunction(Function):
     @classmethod
     def from_json(cls, json_obj: DecompiledFunctionJSONObject) -> 'DecompiledFunction':
         function = cls(json_obj['uid'], Path(json_obj['path']), json_obj['name'],
-                       json_obj['definition'], json_obj['assembly'], json_obj['architecture'])
-        function.set_metadata(json_obj['metadata'])
+                       json_obj['definition'], json_obj['assembly'], json_obj['architecture'],
+                       _metadata=json_obj['metadata'])
         return function
 
     @no_type_check

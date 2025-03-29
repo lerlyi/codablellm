@@ -10,7 +10,9 @@ from dataclasses import dataclass, field
 import importlib
 import logging
 from pathlib import Path
-from typing import Any, Dict, Final, List, Literal, Optional, TypedDict, Sequence, Union, overload
+from typing import Any, Dict, List, NamedTuple, Optional, Sequence, Union
+
+from prefect import flow, task
 
 from codablellm.core.dashboard import CallablePoolProgress, ProcessPoolProgress, Progress
 from codablellm.core.function import DecompiledFunction
@@ -20,24 +22,38 @@ from codablellm.exceptions import DecompilerNotFound
 logger = logging.getLogger('codablellm')
 
 
-class NamedDecompiler(TypedDict):
+class RegisteredDecompiler(NamedTuple):
+    name: str
     class_path: str
 
 
-DECOMPILER: Final[NamedDecompiler] = {
-    'class_path': 'codablellm.decompilers.ghidra.Ghidra'
-}
+_decompiler: RegisteredDecompiler = RegisteredDecompiler(
+    'Ghidra', 'codablellm.decompilers.ghidra.Ghidra'
+)
 
 
-def set_decompiler(class_path: str) -> None:
+def set(name: str, class_path: str) -> None:
     '''
     Sets the decompiler used by `codablellm`.
 
     Parameters:
         class_path:  The fully qualified class path (in the form `module.submodule.ClassName`) of the subclass of `Decompiler` to use.
     '''
-    DECOMPILER['class_path'] = class_path
-    logger.info(f'Using "{class_path}" as the decompiler')
+    global _decompiler
+    old_decompiler = _decompiler
+    _decompiler = RegisteredDecompiler(name, class_path)
+    # Instantiate decompiler to ensure it can be properly imported
+    try:
+        create_decompiler()
+    except:
+        logger.error(f'Could not create "{name}" extractor')
+        _decompiler = old_decompiler
+        raise
+    logger.info(f'Using "{name}" ({class_path}) as the decompiler')
+
+
+def get() -> RegisteredDecompiler:
+    return _decompiler
 
 
 class Decompiler(ABC):
@@ -59,7 +75,7 @@ class Decompiler(ABC):
         pass
 
 
-def get_decompiler(*args: Any, **kwargs: Any) -> Decompiler:
+def create_decompiler(*args: Any, **kwargs: Any) -> Decompiler:
     '''
     Initializes an instance of the decompiler that is being used by `codablellm`.
 
@@ -73,18 +89,13 @@ def get_decompiler(*args: Any, **kwargs: Any) -> Decompiler:
     Raises:
         DecompilerNotFound: If the specified decompiler cannot be imported or if the class cannot be found in the specified module.
     '''
-    module_path, class_name = DECOMPILER['class_path'].rsplit('.', 1)
+    module_path, class_name = _decompiler.class_path.rsplit('.', 1)
     try:
         module = importlib.import_module(module_path)
         return getattr(module, class_name)(*args, **kwargs)
     except (ModuleNotFoundError, AttributeError) as e:
         raise DecompilerNotFound('Could not import '
                                  f'"{module_path}.{class_name}"') from e
-
-
-def _decompile(path: PathLike, *args: Any, **kwargs: Any) -> Sequence[DecompiledFunction]:
-    logger.debug(f'Decompiling {Path(path).name}...')
-    return get_decompiler(*args, **kwargs).decompile(path)
 
 
 @dataclass(frozen=True)
@@ -110,47 +121,9 @@ class DecompileConfig:
             raise ValueError('Max workers must be a positive integer')
 
 
-class _CallableDecompiler(CallablePoolProgress[PathLike, Sequence[DecompiledFunction],
-                                               List[DecompiledFunction]]):
-
-    def __init__(self, paths: Union[PathLike, Sequence[PathLike]],
-                 config: DecompileConfig) -> None:
-        bins: List[Path] = []
-        if isinstance(paths, (Path, str)):
-            paths = [paths]
-        for path in paths:
-            path = Path(path)
-            # If a path is a directory, glob all child binaries
-            bins.extend([b for b in path.glob('*') if is_binary(b)]
-                        if path.is_dir() else [path])
-        if not any(bins):
-            logger.warning('No binaries found to decompile')
-        pool = ProcessPoolProgress(_decompile, bins, Progress('Decompiling binaries...', total=len(bins)),
-                                   max_workers=config.max_workers,
-                                   submit_args=tuple(config.decompiler_args),
-                                   submit_kwargs=config.decompiler_kwargs)
-        super().__init__(pool)
-
-    @benchmark_function('Decompiling binaries')
-    def get_results(self) -> List[DecompiledFunction]:
-        return [d for b in self.pool for d in b]
-
-
-@overload
-def decompile(paths: Union[PathLike, Sequence[PathLike]],
-              config: DecompileConfig = DecompileConfig(),
-              as_callable_pool: Literal[False] = False) -> List[DecompiledFunction]: ...
-
-
-@overload
-def decompile(paths: Union[PathLike, Sequence[PathLike]],
-              config: DecompileConfig = DecompileConfig(),
-              as_callable_pool: Literal[True] = True) -> _CallableDecompiler: ...
-
-
-def decompile(paths: Union[PathLike, Sequence[PathLike]],
-              config: DecompileConfig = DecompileConfig(),
-              as_callable_pool: bool = False) -> Union[List[DecompiledFunction], _CallableDecompiler]:
+@task
+def decompile_task(paths: Union[PathLike, Sequence[PathLike]],
+                   config: DecompileConfig) -> List[DecompiledFunction]:
     '''
     Decompiles binaries and extracts decompiled functions from the given path or list of paths.
 
@@ -162,7 +135,27 @@ def decompile(paths: Union[PathLike, Sequence[PathLike]],
     Returns:
         Either a list of `DecompiledFunction` instances or a `_CallableDecompiler` for deferred execution.
     '''
-    decompiler = _CallableDecompiler(paths, config)
-    if as_callable_pool:
-        return decompiler
-    return decompiler()
+    bins: List[Path] = []
+    # Collect binary files
+    if isinstance(paths, (Path, str)):
+        paths = [paths]
+    for path in paths:
+        path = Path(path)
+        # If a path is a directory, glob all child binaries
+        bins.extend([b for b in path.glob('*') if is_binary(b)]
+                    if path.is_dir() else [path])
+    if not any(bins):
+        logger.warning('No binaries found to decompile')
+    # Create decompiler
+    decompiler = create_decompiler(*config.decompiler_args,
+                                   **config.decompiler_kwargs)
+    # Submit decompile tasks
+    logger.info(f'Submitting {get().name} decompile tasks...')
+    futures = [task(decompiler.decompile).submit(bin) for bin in bins]
+    return [function for future in futures for function in future.result()]
+
+
+@flow
+def decompile(paths: Union[PathLike, Sequence[PathLike]],
+              config: DecompileConfig) -> List[DecompiledFunction]:
+    return decompile_task(paths, config=config)

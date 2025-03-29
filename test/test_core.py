@@ -131,7 +131,7 @@ def test_decompiled_function(tmp_path: Path) -> None:
 
 
 def test_extractors_config() -> None:
-    extractor.set_extractors({'C': 'codablellm.languages.CExtractor'})
-    assert isinstance(extractor.get_extractor('C'), CExtractor)
+    extractor.set_registered({'C': 'codablellm.languages.CExtractor'})
+    assert isinstance(extractor.create_extractor('C'), CExtractor)
     with pytest.raises(ExtractorNotFound):
-        extractor.get_extractor('nonexistant')
+        extractor.create_extractor('nonexistant')

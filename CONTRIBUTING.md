@@ -21,10 +21,10 @@ Whether you're fixing a bug, improving documentation, or adding support for a ne
     source .venv/bin/activate # On Windows use: .venv\Scripts\Activate.ps1
     ```
 
-3. **Install all dev dependencies**:
+3. **Install all extras and dev dependencies**:
 
     ```
-    pip install -r requirements.txt
+    pip install .[all,dev]
     ```
 
 4. **Run tests** to verify setup:
