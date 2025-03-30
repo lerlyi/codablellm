@@ -32,7 +32,7 @@ RUN adduser --disabled-password --gecos "" --shell "/sbin/nologin" --uid "${UID}
     && usermod -aG sudo appuser
 
 # Install Python requirements
-COPY requirements.txt .
+COPY . .
 RUN python -m pip install --upgrade pip
 RUN --mount=type=cache,target=/root/.cache/pip \
     python -m pip install .[all]

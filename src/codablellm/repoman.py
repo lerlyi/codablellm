@@ -206,7 +206,7 @@ def compile_dataset_task(
     bins = [bins] if isinstance(bins, str) else bins
     # Build repository
     with manage(build_command, path, config=manage_config):
-        future = DecompiledCodeDataset.from_repository.submit(DecompiledCodeDataset, path, bins, extract_config=extract_config,
+        future = DecompiledCodeDataset.from_repository.submit(path, bins, extract_config=extract_config,
                                                               dataset_config=dataset_config)
         if generation_mode == 'temp-append':
             # Create a copy of the extract config to extract the path without a transform

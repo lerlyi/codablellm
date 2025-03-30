@@ -621,15 +621,6 @@ class DecompiledCodeDataset(Dataset, Mapping[str, MappedFunction]):
         return DecompiledCodeDataset(mappings)
 
     @classmethod
-    @flow
-    def map_functions_flow(cls,
-                           source: Union[SourceCodeDataset, Iterable[SourceFunction]],
-                           decompiled: Union['DecompiledCodeDataset', Iterable[DecompiledFunction]],
-                           config: DecompiledCodeDatasetConfig = DecompiledCodeDatasetConfig()
-                           ) -> 'DecompiledCodeDataset':
-        return cls.map_functions(source, decompiled, config=config)
-
-    @classmethod
     def create_aligned_dataset(
         cls,
         original: 'DecompiledCodeDataset',

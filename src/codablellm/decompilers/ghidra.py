@@ -57,7 +57,7 @@ class Ghidra(Decompiler):
                 f"{Ghidra.ENVIRON_KEY} is not set to Ghidra's analyzeHeadless command")
         self._ghidra_path = ghidra_path
 
-    def get_functions(self, path: PathLike) -> Sequence[DecompiledFunction]:
+    def decompile(self, path: PathLike) -> Sequence[DecompiledFunction]:
         path = Path(path)
         if not is_binary(path):
             raise ValueError('path must be an existing binary.')
@@ -74,8 +74,10 @@ class Ghidra(Decompiler):
                     # Run decompile script
                     try:
                         utils.execute_command([str(self._ghidra_path), project_dir, 'codablellm', '-import', str(path),
-                                               '-scriptPath', str(Ghidra.SCRIPT_PATH.parent), '-noanalysis',
-                                               '-postScript', Ghidra.SCRIPT_PATH.name, str(output_path),
+                                               '-scriptPath', str(
+                                                   Ghidra.SCRIPT_PATH.parent), '-noanalysis',
+                                               '-postScript', Ghidra.SCRIPT_PATH.name, str(
+                                                   output_path),
                                                '-deleteProject'],
                                               task=f'Decompiling {path.name}...',
                                               print_errors=False, log_level='debug')

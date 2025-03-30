@@ -44,6 +44,7 @@ SupportsJSON_T = TypeVar('SupportsJSON_T',
                          bound='SupportsJSON')
 
 
+# TODO: remove JSON logic and use Pydantic Base Models instead of dataclasses
 class SupportsJSON(Protocol):
     '''
     A class that supports JSON serialization/deserialization.
@@ -338,7 +339,7 @@ def load_checkpoint_data(prefix: str, delete_on_load: bool = False) -> List[JSON
     return checkpoint_data
 
 
-Command = Sequence[str]
+Command = Union[str, Sequence[str]]
 '''
 A CLI command.
 '''
