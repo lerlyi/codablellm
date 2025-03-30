@@ -40,7 +40,7 @@ class ExtractorConfigOperation(str, Enum):
 class GenerationMode(str, Enum):
     PATH = 'path'
     TEMP = 'temp'
-#    TEMP_APPEND = 'temp-append'
+    TEMP_APPEND = 'temp-append'
 
 
 class CommandErrorHandler(str, Enum):

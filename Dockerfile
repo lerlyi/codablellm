@@ -31,15 +31,19 @@ ARG UID=10001
 RUN adduser --disabled-password --gecos "" --shell "/sbin/nologin" --uid "${UID}" appuser \
     && usermod -aG sudo appuser
 
-# Install Python requirements
-COPY . .
-RUN python -m pip install --upgrade pip
-RUN --mount=type=cache,target=/root/.cache/pip \
-    python -m pip install .[all]
+# Install core package tools
+RUN python -m pip install --upgrade pip setuptools
 
-# Copy source and install package
+# Copy pyproject.toml and install deps (cached if unchanged)
+COPY pyproject.toml .
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install .[all] --no-build-isolation
+
+# Copy the source code (invalidates cache if you change code)
 COPY . .
-RUN python -m pip install .[all]
+
+# Reinstall local package to pick up code changes
+RUN pip install --no-deps --no-build-isolation .
 
 # Optional: autocomplete
 # RUN codablellm --install-completion

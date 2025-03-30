@@ -371,70 +371,84 @@ def add_command_args(command: Command, *args: Any) -> Command:
     return [*command, *args]
 
 
-def execute_command(command: Command, error_handler: CommandErrorHandler = 'none',
-                    task: Optional[str] = None, ctx: AbstractContextManager[Any] = nullcontext(),
+def execute_command(command: Command,
+                    error_handler: CommandErrorHandler = 'none',
+                    task: Optional[str] = None,
+                    ctx: AbstractContextManager[Any] = nullcontext(),
                     log_level: Literal['debug', 'info'] = 'info',
-                    print_errors: bool = True, cwd: Optional[PathLike] = None) -> str:
+                    print_errors: bool = True,
+                    cwd: Optional[PathLike] = None) -> str:
     '''
-    Executes a CLI command.
+    Executes a CLI command with optional interactive error handling.
 
     Parameters:
         command: The CLI command to be executed.
-        error_handler: Specifies how to handle errors during command execution.
-        task: An optional description of the task being performed used for logging.
-        ctx: Context manager to use for the command execution.
-        log_level: The logging level for the task description.
-        print_errors: If `True`, prints the error output to the console.
-        cwd: The working directory to execute the command in.
+        error_handler: 'none' | 'interactive'
+        task: Optional description for logging.
+        ctx: Context manager used to wrap the execution.
+        log_level: Log level for the task description.
+        print_errors: If True, prints output on error.
+        cwd: Working directory to execute the command in.
 
     Returns:
         The output of the command.
 
     Raises:
-        CalledProcessError: If the command fails and the error handler is set to 'none'.
+        CalledProcessError: If the command fails and error_handler is 'none'.
     '''
-    command_str = command if isinstance(command, str) \
-        else ' '.join(str(c) for c in command)
+    command_str = command if isinstance(command, str) else ' '.join(str(c) for c in command)
     log_task = logger.debug if log_level == 'debug' else logger.info
+    output = ''
+
     if not task:
         task = f'Executing: "{command_str}"'
-    if task:
-        log_task(task)
-    output = ''
-    try:
-        with ctx:
-            output = subprocess.check_output(command_str, shell=True, text=True,
-                                             cwd=cwd, stderr=subprocess.STDOUT)
-    except subprocess.CalledProcessError as e:
-        output = e.output
-        logger.error(f'Command failed: "{command_str}"')
-        if print_errors:
-            print(f'[red][b]Command failed: "{command_str}"[/b]'
-                  f'\nOutput: {output}')
-        if error_handler == 'interactive':
-            result = Prompt.ask('A command error occurred. You can manually fix the issue and '
-                                'retry, ignore the error to continue, abort the process, or edit '
-                                'the command. How would you like to proceed?',
-                                choices=['retry', 'ignore', 'abort', 'edit'],
-                                case_sensitive=False, default='retry')
-            if result == 'retry':
-                execute_command(command, error_handler=error_handler,
-                                task=task)
-            elif result == 'abort':
-                error_handler = 'none'
-            elif result == 'edit':
-                edited_command = Prompt.ask('Enter the new command to execute',
-                                            default=f'"{command_str}"').strip('"\'')
-                execute_command(edited_command, error_handler=error_handler,
-                                task=task)
-        if error_handler == 'none':
+
+    while True:
+        if task:
+            log_task(task)
+
+        try:
+            with ctx:
+                output = subprocess.check_output(command, text=True, cwd=cwd, stderr=subprocess.STDOUT)
+            log_task(f'Successfully executed "{command_str}"')
+            break  # Exit loop on success
+
+        except subprocess.CalledProcessError as e:
+            output = e.output
+            logger.error(f'Command failed: "{command_str}"')
+            if print_errors:
+                print(f'[red][b]Command failed: "{command_str}"[/b]\nOutput: {output}')
+
+            if error_handler == 'interactive':
+                result = Prompt.ask(
+                    "A command error occurred. You can manually fix the issue and retry, ignore the error to continue, "
+                    "abort the process, or edit the command. How would you like to proceed?",
+                    choices=['retry', 'ignore', 'abort', 'edit'],
+                    case_sensitive=False,
+                    default='retry'
+                )
+
+                if result == 'retry':
+                    continue
+                elif result == 'ignore':
+                    break
+                elif result == 'abort':
+                    raise e
+                elif result == 'edit':
+                    edited_command = Prompt.ask(
+                        "Enter the new command to execute",
+                        default=f'"{command_str}"'
+                    ).strip('"\'')
+                    command = edited_command if isinstance(edited_command, list) else edited_command.split()
+                    continue
+
+            # If not interactive, raise immediately
             raise
-    else:
-        log_task(f'Successfully executed "{command_str}"')
-    finally:
-        if output:
-            logger.debug(f'"{command_str}" output:\n"{output}"')
+
+    if output:
+        logger.debug(f'"{command_str}" output:\n"{output}"')
     return output
+
 
 
 REBASED_DIR_ENVIRON_KEY: Final[str] = 'CODABLELLM_REBASED_DIR'

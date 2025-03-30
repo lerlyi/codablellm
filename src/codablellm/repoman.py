@@ -3,19 +3,15 @@ High-level functionality for creating code datasets from source code repositorie
 '''
 
 from contextlib import contextmanager, nullcontext
-from dataclasses import asdict, dataclass, replace
+from dataclasses import dataclass, replace
 import logging
-import os
-from pathlib import Path
-from tempfile import NamedTemporaryFile
-from typing import Collection, Generator, Literal, Optional, Sequence, Tuple
+from typing import Collection, Generator, Literal, Optional
 
 from prefect import flow, task
 
 from codablellm.core import utils
 from codablellm.core.dashboard import Progress
 from codablellm.core.extractor import ExtractConfig
-from codablellm.core.function import DecompiledFunction
 from codablellm.dataset import (
     DatasetGenerationMode, DecompiledCodeDataset, DecompiledCodeDatasetConfig, SourceCodeDataset,
     SourceCodeDatasetConfig
@@ -125,7 +121,7 @@ def create_source_dataset(path: utils.PathLike,
                           config: SourceCodeDatasetConfig = SourceCodeDatasetConfig(
                               log_generation_warning=False)
                           ) -> SourceCodeDataset:
-    return SourceCodeDataset.from_repository(path, config=config).result()
+    return SourceCodeDataset.from_repository(path, config=config)
 
 
 @flow
@@ -135,7 +131,7 @@ def create_decompiled_dataset(path: utils.PathLike,
                               dataset_config: DecompiledCodeDatasetConfig = DecompiledCodeDatasetConfig()
                               ) -> DecompiledCodeDataset:
     return DecompiledCodeDataset.from_repository(path, bins, extract_config=extract_config,
-                                                 dataset_config=dataset_config).result()
+                                                 dataset_config=dataset_config)
 
 
 @task
