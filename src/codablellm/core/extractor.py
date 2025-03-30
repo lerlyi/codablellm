@@ -106,7 +106,7 @@ class Extractor(ABC):
         pass
 
     @abstractmethod
-    def get_extractable_files(self, path: PathLike) -> Sequence[Path]:
+    def get_extractable_files(self, path: PathLike) -> Set[Path]:
         '''
         Retrieves all files that can be processed by the extractor from the given path.
 
@@ -208,7 +208,10 @@ class ExtractConfig:
 
 
 @task
-def extract_task(path: PathLike, config: ExtractConfig = ExtractConfig()) -> List[SourceFunction]:
+def extract_directory_task(
+    path: PathLike,
+    config: ExtractConfig = ExtractConfig()
+) -> List[SourceFunction]:
     '''
     Extracts source functions from the given path using the specified configuration.
 
@@ -248,5 +251,12 @@ def extract_task(path: PathLike, config: ExtractConfig = ExtractConfig()) -> Lis
 
 
 @flow
-def extract(path: PathLike, config: ExtractConfig = ExtractConfig()) -> List[SourceFunction]:
-    return extract_task(path, config=config)
+def extract(
+    *paths: PathLike,
+    config: ExtractConfig = ExtractConfig()
+) -> List[SourceFunction]:
+    futures = [extract_directory_task.submit(path, config=config)
+               for path in paths]
+    return [function
+            for future in futures
+            for function in future.result()]

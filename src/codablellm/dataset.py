@@ -4,24 +4,18 @@ Code dataset generation.
 
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
-from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
-from functools import wraps
 import logging
 import os
 from pathlib import Path
-import shutil
-from tempfile import TemporaryDirectory
-from typing import (Any, Callable, Dict, Final, Iterable, Iterator, List, Literal, NamedTuple, Optional,
-                    Sequence, Tuple, TypeVar, Union, overload)
+from typing import (Any, Callable, Collection, Dict, Final, Iterable, Iterator, List, Literal, NamedTuple, Optional,
+                    TypeVar, Union)
 
 from pandas import DataFrame
 from prefect import flow, task
 
 from codablellm.core import decompiler, extractor, utils
-from codablellm.core.dashboard import ProcessPoolProgress, Progress
 from codablellm.core.function import DecompiledFunction, SourceFunction
-from codablellm.exceptions import TSParsingError
 
 logger = logging.getLogger('codablellm')
 
@@ -228,8 +222,8 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
         return common_path if common_path.is_dir() else common_path.parent
 
     @classmethod
-    def create_aligned_dataset(cls, original: Union[Sequence[SourceFunction], 'SourceCodeDataset'],
-                               transformed: Union[Sequence[SourceFunction], 'SourceCodeDataset']) -> 'SourceCodeDataset':
+    def create_aligned_dataset(cls, original: Union[Collection[SourceFunction], 'SourceCodeDataset'],
+                               transformed: Union[Collection[SourceFunction], 'SourceCodeDataset']) -> 'SourceCodeDataset':
         # Create temporary transformed and non-transformed datasets (if not already)
         if not isinstance(original, SourceCodeDataset):
             original = cls(function for function in original)
@@ -292,34 +286,28 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
         Returns:
             The generated source code dataset if `as_callable_pool` is `False`, or a `CallablePoolProgress` object if `as_callable_pool` is `True`.
         '''
-        ctx = TemporaryDirectory(delete=config.delete_temp) \
-            if config.generation_mode == 'temp' or \
-            config.generation_mode == 'temp-append' \
-            else nullcontext()
-        with ctx as temp_dir:
-            # If a temporary directory was created, copy the repository
-            if temp_dir:
-                copied_repo_dir = Path(temp_dir) / Path(path).name
-                shutil.copytree(path, copied_repo_dir)
-                final_path = copied_repo_dir
-            else:
-                final_path = path
+        original_path = path
+        with utils.prepared_dir(path,
+                                rebased=config.generation_mode == 'temp'
+                                or config.generation_mode == 'temp-append',
+                                set_env_var=False
+                                ) as path:
             logger.info('Submitting extraction task...')
             # Extract source code functions on the path/temp directory
-            futures = extractor.extract_task.submit(final_path,
-                                                    config.extract_config)
+            futures = extractor.extract_directory_task.submit(path,
+                                                              config.extract_config)
             if config.generation_mode == 'temp-append':
                 # Create a copy of the extract config to extract the path without a transform
                 no_transform_extract_config = replace(
                     config.extract_config,
-                    generation_mode='path'
+                    transform=None
                 )
-                path_futures = extractor.extract_task.submit(
-                    path,
+                original_futures = extractor.extract_directory_task.submit(
+                    original_path,
                     config=no_transform_extract_config
                 )
                 return cls.create_aligned_dataset(
-                    path_futures.result(),
+                    original_futures.result(),
                     futures.result()
                 )
             return cls(function for function in futures.result())
@@ -512,7 +500,7 @@ class DecompiledCodeDataset(Dataset, Mapping[str, MappedFunction]):
 
     @classmethod
     @task
-    def from_repository(cls, path: utils.PathLike, bins: Sequence[utils.PathLike],
+    def from_repository(cls, path: utils.PathLike, bins: Collection[utils.PathLike],
                         extract_config: extractor.ExtractConfig = extractor.ExtractConfig(),
                         dataset_config: DecompiledCodeDatasetConfig = DecompiledCodeDatasetConfig()) -> 'DecompiledCodeDataset':
         '''
@@ -559,11 +547,11 @@ class DecompiledCodeDataset(Dataset, Mapping[str, MappedFunction]):
         if not any(bins):
             raise ValueError('Must at least specify one binary')
         # Extract source code functions and decompile binaries in parallel
-        future_functions = extractor.extract_task.submit(path,
-                                                         config=extract_config)
+        future_functions = extractor.extract_directory_task.submit(path,
+                                                                   config=extract_config)
         future_bins = [task(decompiler.decompile).submit(bin, config=dataset_config.decompiler_config)
                        for bin in bins]
-        return cls.map_functions(cls, future_functions.result(),
+        return cls.map_functions(future_functions.result(),
                                  [f for future in future_bins for f in future.result()],
                                  config=dataset_config)
 
@@ -599,8 +587,8 @@ class DecompiledCodeDataset(Dataset, Mapping[str, MappedFunction]):
 
     @classmethod
     def map_functions(cls,
-                      source: Union[SourceCodeDataset, Sequence[SourceFunction]],
-                      decompiled: Union['DecompiledCodeDataset', Sequence[DecompiledFunction]],
+                      source: Union[SourceCodeDataset, Iterable[SourceFunction]],
+                      decompiled: Union['DecompiledCodeDataset', Iterable[DecompiledFunction]],
                       config: DecompiledCodeDatasetConfig = DecompiledCodeDatasetConfig()
                       ) -> 'DecompiledCodeDataset':
 
@@ -635,8 +623,37 @@ class DecompiledCodeDataset(Dataset, Mapping[str, MappedFunction]):
     @classmethod
     @flow
     def map_functions_flow(cls,
-                           source: Union[SourceCodeDataset, Sequence[SourceFunction]],
-                           decompiled: Union['DecompiledCodeDataset', Sequence[DecompiledFunction]],
+                           source: Union[SourceCodeDataset, Iterable[SourceFunction]],
+                           decompiled: Union['DecompiledCodeDataset', Iterable[DecompiledFunction]],
                            config: DecompiledCodeDatasetConfig = DecompiledCodeDatasetConfig()
                            ) -> 'DecompiledCodeDataset':
         return cls.map_functions(source, decompiled, config=config)
+
+    @classmethod
+    def create_aligned_dataset(
+        cls,
+        original: 'DecompiledCodeDataset',
+        transformed: 'DecompiledCodeDataset'
+    ) -> 'DecompiledCodeDataset':
+        annotated_functions: List[MappedFunction] = []
+        for transformed_function, _ in transformed.values():
+            # Check if UID's match in original dataset
+            decompiled_function, source_functions = original.get(
+                transformed_function, (None, None))
+            if decompiled_function and source_functions:
+                # Annotate with metadata
+                logger.debug(f'Annotating {decompiled_function.uid}...')
+                annotated_function = replace(decompiled_function,
+                                             _metadata={
+                                                 **decompiled_function.metadata,
+                                                 'transformed_definition': transformed_function.definition,
+                                                 'transformed_assembly': transformed_function.assembly,
+                                             })
+                annotated_functions.append(
+                    MappedFunction(annotated_function, source_functions)
+                )
+            else:
+                logger.warning(
+                    f'Could not locate UID "{transformed_function.uid}"'
+                )
+        return cls(annotated_functions)

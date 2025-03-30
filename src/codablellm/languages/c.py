@@ -5,7 +5,7 @@ Functionality for extracting C source code functions.
 
 import itertools
 from pathlib import Path
-from typing import Final, Optional, Sequence
+from typing import Final, Optional, Sequence, Set
 
 from tree_sitter import Language, Parser
 import tree_sitter_c as tsc
@@ -63,10 +63,10 @@ class CExtractor(Extractor):
                                                         repo_path=repo_path))
         return functions
 
-    def get_extractable_files(self, path: PathLike) -> Sequence[Path]:
+    def get_extractable_files(self, path: PathLike) -> Set[Path]:
         path = Path(path)
         extensions = ['.c', '.h']
         if any(path.suffix.casefold() == e.casefold() for e in extensions):
-            return [path]
-        return list(itertools.chain.from_iterable([path.rglob(f'*{e}', case_sensitive=False)
-                                                   for e in extensions]))
+            return {path}
+        return set(itertools.chain.from_iterable([path.rglob(f'*{e}', case_sensitive=False)
+                                                  for e in extensions]))

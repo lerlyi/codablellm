@@ -10,13 +10,12 @@ from dataclasses import dataclass, field
 import importlib
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, NamedTuple, Optional, Sequence, Union
+from typing import Any, Collection, Dict, List, Mapping, NamedTuple, Optional, Sequence, Set, Union
 
 from prefect import flow, task
 
-from codablellm.core.dashboard import CallablePoolProgress, ProcessPoolProgress, Progress
 from codablellm.core.function import DecompiledFunction
-from codablellm.core.utils import PathLike, benchmark_function, is_binary
+from codablellm.core.utils import PathLike, is_binary
 from codablellm.exceptions import DecompilerNotFound
 
 logger = logging.getLogger('codablellm')
@@ -111,7 +110,7 @@ class DecompileConfig:
     '''
     Positional arguments to pass to the decompiler's `__init__` method.
     '''
-    decompiler_kwargs: Dict[str, Any] = field(default_factory=dict)
+    decompiler_kwargs: Mapping[str, Any] = field(default_factory=dict)
     '''
     Keyword arguments to pass to the decompiler's `__init__` method.
     '''
@@ -122,7 +121,7 @@ class DecompileConfig:
 
 
 @task
-def decompile_task(paths: Union[PathLike, Sequence[PathLike]],
+def decompile_task(*paths: PathLike,
                    config: DecompileConfig) -> List[DecompiledFunction]:
     '''
     Decompiles binaries and extracts decompiled functions from the given path or list of paths.
@@ -138,7 +137,7 @@ def decompile_task(paths: Union[PathLike, Sequence[PathLike]],
     bins: List[Path] = []
     # Collect binary files
     if isinstance(paths, (Path, str)):
-        paths = [paths]
+        paths = (paths,)
     for path in paths:
         path = Path(path)
         # If a path is a directory, glob all child binaries
@@ -156,6 +155,6 @@ def decompile_task(paths: Union[PathLike, Sequence[PathLike]],
 
 
 @flow
-def decompile(paths: Union[PathLike, Sequence[PathLike]],
+def decompile(*paths: PathLike,
               config: DecompileConfig) -> List[DecompiledFunction]:
-    return decompile_task(paths, config=config)
+    return decompile_task(*paths, config=config)

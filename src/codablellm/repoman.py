@@ -3,12 +3,12 @@ High-level functionality for creating code datasets from source code repositorie
 '''
 
 from contextlib import contextmanager, nullcontext
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import logging
 import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Final, Generator, Literal, Optional, Sequence, Tuple
+from typing import Collection, Generator, Literal, Optional, Sequence, Tuple
 
 from prefect import flow, task
 
@@ -22,16 +22,6 @@ from codablellm.dataset import (
 )
 
 logger = logging.getLogger('codablellm')
-
-REBASED_DIR_ENVIRON_KEY: Final[str] = 'CODABLELLM_REBASED_DIR'
-'''
-Environment variable key used to expose the rebased directory path to subprocesses.
-
-This is especially useful when running custom build or clean commands that need to
-reference the rebased project root dynamically (e.g., using shell expansion like `$CODABLELLM_REBASED_DIR`).
-
-Set automatically when using the `temp` generation mode.
-'''
 
 
 def build(command: utils.Command, error_handler: Optional[utils.CommandErrorHandler] = None,
@@ -140,7 +130,7 @@ def create_source_dataset(path: utils.PathLike,
 
 @flow
 def create_decompiled_dataset(path: utils.PathLike,
-                              bins: Sequence[utils.PathLike],
+                              bins: Collection[utils.PathLike],
                               extract_config: ExtractConfig = ExtractConfig(),
                               dataset_config: DecompiledCodeDatasetConfig = DecompiledCodeDatasetConfig()
                               ) -> DecompiledCodeDataset:
@@ -149,12 +139,15 @@ def create_decompiled_dataset(path: utils.PathLike,
 
 
 @task
-def compile_dataset_task(path: utils.PathLike, bins: Sequence[utils.PathLike], build_command: utils.Command,
-                         manage_config: ManageConfig = ManageConfig(),
-                         extract_config: ExtractConfig = ExtractConfig(),
-                         dataset_config: DecompiledCodeDatasetConfig = DecompiledCodeDatasetConfig(),
-                         generation_mode: DatasetGenerationMode = 'temp',
-                         ) -> DecompiledCodeDataset:
+def compile_dataset_task(
+    path: utils.PathLike,
+    bins: Collection[utils.PathLike],
+    build_command: utils.Command,
+    manage_config: ManageConfig = ManageConfig(),
+    extract_config: ExtractConfig = ExtractConfig(),
+    dataset_config: DecompiledCodeDatasetConfig = DecompiledCodeDatasetConfig(),
+    generation_mode: DatasetGenerationMode = 'temp',
+) -> DecompiledCodeDataset:
     '''
     Builds a local repository and creates a `DecompiledCodeDataset` by decompiling the specified binaries.
 
@@ -202,96 +195,40 @@ def compile_dataset_task(path: utils.PathLike, bins: Sequence[utils.PathLike], b
     Returns:
         The generated dataset containing mappings of decompiled functions to their potential source code functions.
     '''
+    original_path = path
+    with utils.prepared_dir(
+        path,
+        subpaths=bins,
+        rebased=generation_mode == 'temp' or generation_mode == 'temp-append'
+    ) as paths:
+        path, bins = paths
     # Normalize binaries
     bins = [bins] if isinstance(bins, str) else bins
     # Build repository
     with manage(build_command, path, config=manage_config):
         future = DecompiledCodeDataset.from_repository.submit(DecompiledCodeDataset, path, bins, extract_config=extract_config,
                                                               dataset_config=dataset_config)
-        if generation_mode != 'temp-append':
-            return future.result()
-        
-
-    def try_transform_metadata(decompiled_function: DecompiledFunction,
-                               source_functions: SourceCodeDataset,
-                               other_dataset: DecompiledCodeDataset) -> Tuple[DecompiledFunction, SourceCodeDataset]:
-        # Try to add transformed metadata to the decompiled function if it's in the other dataset
-        matched_decompiled_function, matched_source_functions = \
-            other_dataset.get(decompiled_function,
-                              default=(None, None))
-        if matched_decompiled_function and matched_source_functions:
-            decompiled_function.add_metadata({
-                'transformed_assembly': matched_decompiled_function.assembly,
-                'transformed_decompiled_definition': matched_decompiled_function.definition
-            })
-            for source_function in matched_source_functions.values():
-                source_function.add_metadata({
-                    'transformed_source_definitions': source_function.definition,
-                    'transformed_class_names': source_function.class_name
-                })
-            source_functions = \
-                SourceCodeDataset(matched_source_functions.values())
-        return decompiled_function, source_functions
-    bins = [bins] if isinstance(bins, str) else bins
-    if extract_config.transform:
-        # Create a modified source code dataset with transformed code
-        modified_source_dataset = create_source_dataset(path,
-                                                        config=SourceCodeDatasetConfig(
-                                                            generation_mode='path' if generation_mode == 'path' else 'temp',
-                                                            delete_temp=False,
-                                                            extract_config=extract_config
-                                                        ))
-        with NamedTemporaryFile('w+', prefix='modified_source_dataset',
-                                suffix='.json',
-                                delete=False) as modified_source_dataset_file:
-            modified_source_dataset_file.close()
-            logger.info('Saving backup modified source dataset as '
-                        f'"{modified_source_dataset_file.name}"')
-            modified_source_dataset.save_as(modified_source_dataset_file.name)
-            # Rebase paths to commands and binaries if a temporary directory was created
-            dataset_path = modified_source_dataset.get_common_directory()
-            if dataset_path != path:
-                logger.debug(f'Dataset is saved at {dataset_path}, but original repository path '
-                             f'is {path}. Rebasing paths to binaries...')
-                os.environ[REBASED_DIR_ENVIRON_KEY] = str(dataset_path)
-                rebased_bins = [dataset_path /
-                                Path(b).relative_to(path) for b in bins]
-                rebased_bins_str = ', '.join(str(b) for b in rebased_bins)
-                original_bins_str = ', '.join(str(b) for b in bins)
-                logger.debug(f'Original binaries: {original_bins_str} ; '
-                             f'Rebased binaries: {rebased_bins_str}')
-            else:
-                rebased_bins = bins
-            # Compile repository
-            with manage(build_command, dataset_path, config=manage_config):
-                modified_decompiled_dataset = DecompiledCodeDataset.from_source_code_dataset(modified_source_dataset, rebased_bins,
-                                                                                             config=dataset_config)
-                if generation_mode == 'temp' or generation_mode == 'path':
-                    logger.debug('Removing backup modified source dataset '
-                                 f'"{modified_source_dataset_file.name}"')
-                    Path(modified_source_dataset_file.name).unlink(
-                        missing_ok=True)
-                    return modified_decompiled_dataset
-                # Duplicate the extract config without a transform to append
-                extract_config_dict = asdict(extract_config)
-                extract_config_dict['transform'] = None
-                no_transform_extract = ExtractConfig(**extract_config_dict)
-                # Compile dataset without transform
-            original_decompiled_dataset = compile_dataset(path, bins, build_command,
-                                                          manage_config=manage_config,
-                                                          extract_config=no_transform_extract,
-                                                          dataset_config=dataset_config,
-                                                          generation_mode='path')
-            return DecompiledCodeDataset(try_transform_metadata(d, s, modified_decompiled_dataset)
-                                         for d, s in original_decompiled_dataset.values())
-    else:
-        with manage(build_command, path, config=manage_config):
-            return create_decompiled_dataset(path, bins, extract_config=extract_config,
-                                             dataset_config=dataset_config)
+        if generation_mode == 'temp-append':
+            # Create a copy of the extract config to extract the path without a transform
+            no_transform_extract_config = replace(
+                extract_config,
+                transform=None
+            )
+            original_futures = compile_dataset_task.submit(
+                original_path, bins, build_command,
+                manage_config=manage_config,
+                extract_config=no_transform_extract_config,
+                dataset_config=dataset_config,
+                generation_mode='path'
+            )
+            return DecompiledCodeDataset.create_aligned_dataset(
+                original_futures.result(), future.result()
+            )
+        return future.result()
 
 
 @flow
-def compile_dataset(path: utils.PathLike, bins: Sequence[utils.PathLike], build_command: utils.Command,
+def compile_dataset(path: utils.PathLike, bins: Collection[utils.PathLike], build_command: utils.Command,
                     manage_config: ManageConfig = ManageConfig(),
                     extract_config: ExtractConfig = ExtractConfig(),
                     dataset_config: DecompiledCodeDatasetConfig = DecompiledCodeDatasetConfig(),

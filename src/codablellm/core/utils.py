@@ -3,9 +3,8 @@ Core utility functions for codablellm.
 '''
 
 from contextlib import AbstractContextManager, contextmanager, nullcontext
-from itertools import dropwhile, takewhile
+import shutil
 import subprocess
-import time
 from functools import wraps
 import importlib
 import json
@@ -14,7 +13,7 @@ import os
 from pathlib import Path
 from queue import Queue
 import tempfile
-from typing import (Any, Callable, Dict, Generator, Iterable, List, Literal, Optional, Protocol, Sequence, Set, Tuple,
+from typing import (Any, Callable, Collection, Dict, Final, Generator, Iterable, List, Literal, Optional, Protocol, Sequence, Set, Tuple,
                     Type, TypeVar, Union, overload)
 
 from rich import print
@@ -339,43 +338,7 @@ def load_checkpoint_data(prefix: str, delete_on_load: bool = False) -> List[JSON
     return checkpoint_data
 
 
-def benchmark_function(task: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    '''
-    Decorator that benchmarks the execution time of a function and logs the duration.
-
-    Parameters:
-        task: Description of the task being benchmarked.
-
-    Returns:
-        A decorator that wraps the function and logs the execution time in seconds
-    '''
-    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-        @wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            start = time.perf_counter()
-            result = func(*args, **kwargs)
-            end = time.perf_counter()
-            logger.info(f'{task} took {end - start:.2f} seconds')
-            return result
-        return wrapper
-    return decorator
-
-
-@contextmanager
-def benchmark_context(task: str) -> Generator[None, None, None]:
-    '''
-    Context manager that benchmarks the execution time of a code block and logs the duration.
-
-    Parameters:
-        task: Description of the task being benchmarked.
-    '''
-    start = time.perf_counter()
-    yield
-    end = time.perf_counter()
-    logger.info(f'{task} took {end - start:.2f} seconds')
-
-
-Command = Union[Sequence[str]]
+Command = Sequence[str]
 '''
 A CLI command.
 '''
@@ -471,3 +434,86 @@ def execute_command(command: Command, error_handler: CommandErrorHandler = 'none
         if output:
             logger.debug(f'"{command_str}" output:\n"{output}"')
     return output
+
+
+REBASED_DIR_ENVIRON_KEY: Final[str] = 'CODABLELLM_REBASED_DIR'
+'''
+Environment variable key used to expose the rebased directory path to subprocesses.
+
+This is especially useful when running custom build or clean commands that need to
+reference the rebased project root dynamically (e.g., using shell expansion like `$CODABLELLM_REBASED_DIR`).
+
+Set automatically when using the `temp` generation mode.
+'''
+
+
+@contextmanager
+@overload
+def prepared_dir(path: PathLike,
+                 subpaths: None = None,
+                 rebased: bool = True,
+                 set_env_var: bool = True,
+                 ) -> Generator[Path, None, None]: ...
+
+
+@contextmanager
+@overload
+def prepared_dir(path: PathLike,
+                 subpaths: Collection[PathLike] = {},
+                 rebased: bool = True,
+                 set_env_var: bool = True,
+                 ) -> Generator[Tuple[Path, Set[Path]], None, None]: ...
+
+
+@contextmanager
+def prepared_dir(path: PathLike,
+                 subpaths: Optional[Collection[PathLike]] = None,
+                 rebased: bool = True,
+                 set_env_var: bool = True,
+                 ) -> Generator[Union[Path, Tuple[Path, Set[Path]]], None, None]:
+    # Normalize paths
+    path = Path(path)
+    if not subpaths:
+        subpaths = []
+    normalized_subpaths = {Path(s) for s in subpaths}
+    # Ensure all subpaths are relative to the path
+    relative_subpaths = {s.relative_to(path) for s in normalized_subpaths}
+    # Get the parent directory of path/rebased
+    parent_dir_ctx = tempfile.TemporaryDirectory() \
+        if rebased else nullcontext(path.parent)
+    with parent_dir_ctx as parent_dir:
+        parent_dir = Path(parent_dir)
+        is_rebased_dir = parent_dir != path.parent
+        if is_rebased_dir:
+            # Copy directory to rebased parent
+            rebased_path = Path(parent_dir) / Path(path).name
+            shutil.copytree(path, rebased_path)
+            path = rebased_path
+            logger.debug(
+                f'Rebased directory created under {repr(parent_dir.name)}'
+            )
+            # Rebase subpaths
+            normalized_subpaths = {path / s for s in relative_subpaths}
+            if any(normalized_subpaths):
+                logger.debug('Rebased subpaths: '
+                             ', '.join([str(Path(parent_dir.name) / s)
+                                       for s in relative_subpaths])
+                             )
+        try:
+            if is_rebased_dir and set_env_var:
+                # Set rebased directory environment variable
+                parent_dir_str = str(parent_dir)
+                if os.environ.setdefault(REBASED_DIR_ENVIRON_KEY,
+                                         parent_dir_str) != parent_dir_str:
+                    logger.warning(
+                        f'{repr(REBASED_DIR_ENVIRON_KEY)} is already set'
+                    )
+            if normalized_subpaths:
+                # Yield rebased path and subpaths
+                yield path, normalized_subpaths
+            else:
+                # Yield rebased path
+                yield path
+        finally:
+            # Remove rebased directory environment variable
+            os.environ.pop(REBASED_DIR_ENVIRON_KEY, None)

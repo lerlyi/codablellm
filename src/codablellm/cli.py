@@ -166,7 +166,7 @@ DECOMPILE: Final[bool] = Option(False, '--decompile / --source', '-d / -s',
                                 help='If the language supports decompiled code mapping, use '
                                 '--decompiler to decompile the binaries specified by the bins '
                                 'argument and add decompiled code to the dataset.')
-DECOMPILER: Final[str] = Option(codablellm.decompiler._decompiler['class_path'],
+DECOMPILER: Final[str] = Option(codablellm.decompiler._decompiler.class_path,
                                 help='Decompiler to use.',
                                 metavar='CLASSPATH')
 DEBUG: Final[bool] = Option(False, '--debug', callback=toggle_debug_logging,
@@ -271,7 +271,8 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
     Creates a code dataset from a local repository.
     '''
     # Configure decompiler
-    codablellm.decompiler.set_decompiler(decompiler)
+    codablellm.decompiler.set(f'(CLI-Set) {decompiler.split('.')[-1]}',
+                              decompiler)
     if extractors:
         # Configure function extractors
         operation, config_file = extractors
@@ -289,7 +290,7 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
             for language, class_path in configured_extractors.items():
                 order = 'last' if operation == ExtractorConfigOperation.APPEND else 'first'
                 codablellm.extractor.register(language, class_path,
-                                                   order=order)
+                                              order=order)
     if url:
         # Download remote repository
         if git:
@@ -297,15 +298,15 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
         else:
             downloader.decompress(url, repo)
     # Create the extractor configuration
-    if use_checkpoint is None:
-        if any(codablellm.extractor.get_checkpoint_files()):
-            use_checkpoint = Confirm.ask(
-                'Extraction checkpoint files detected. Would you like to resume from the most '
-                'recent checkpoint?',
-                case_sensitive=False
-            )
-        else:
-            use_checkpoint = False
+    # if use_checkpoint is None:
+    #     if any(codablellm.extractor.get_checkpoint_files()):
+    #         use_checkpoint = Confirm.ask(
+    #             'Extraction checkpoint files detected. Would you like to resume from the most '
+    #             'recent checkpoint?',
+    #             case_sensitive=False
+    #         )
+    #     else:
+    #         use_checkpoint = False
     extract_config = ExtractConfig(
         max_workers=max_extractor_workers,
         accurate_progress=accurate,
@@ -314,7 +315,7 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
             exclusive_subpath) if exclusive_subpath else set(),
         exclude_subpaths=set(exclude_subpath) if exclude_subpath else set(),
         checkpoint=checkpoint,
-        use_checkpoint=use_checkpoint
+        use_checkpoint=True
     )
     if build:
         logger.warning('--build specified without --decompile. --decompile enabled '
