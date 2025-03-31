@@ -19,26 +19,36 @@ Install CodableLLM directly from PyPI:
 pip install codablellm
 ```
 
-### Docker
+### Docker Compose (Recommended)
 
-Alternatively, you can build and run CodableLLM's CLI using Docker:
+CodableLLM uses [Prefect](https://www.prefect.io/) for orchestration and parallel processing.
+Because Prefect relies on a backend database, we recommend using the provided Docker Compose setup, which includes a configured PostgreSQL database.
 
-**Build the image:**
-
-```
-docker build -t codablellm .
-```
-
-**Run the container with access to your local files:**
+**Run an example extraction using Docker Compose**:
 
 ```bash
-docker run --rm -it -v $(pwd):/workspace -w /workspace codablellm \
-    codablellm --url https://github.com/dmanuel64/codablellm/raw/refs/heads/main/examples/demo-c-repo.zip \
-    --build "cd /tmp/demo-c-repo && make" \
-    /tmp/demo-c-repo demo-c-repo.csv /tmp/demo-c-repo
+docker compose run --rm app \
+  codablellm \
+  --url https://github.com/dmanuel64/codablellm/raw/refs/heads/main/examples/demo-c-repo.zip \
+  /tmp/demo-c-repo \
+  ./demo-c-repo.csv \
+  /tmp/demo-c-repo \
+  --strip \
+  --transform my_transform.transform \
+  --generation-mode temp-append \
+  --build make
 ```
 
-> **This mounts your current directory to /workspace inside the container, allowing access to input/output files.**
+This command does the following:
+
+- Downloads and extracts a compressed C project archive from the given --url to `/tmp/demo-c-repo`.
+- Uses `/tmp/demo-c-repo` as both the source of extracted code and the location of compiled binaries.
+- Outputs a dataset to `./demo-c-repo.csv` (relative to your host machine).
+- Runs the build command (`make`) inside the extracted repo directory to generate binaries.
+- Applies transformations using the function defined in `my_transform.py` (i.e., `my_transform.transform`).
+- Uses --generation-mode `temp-append`, which appends transformed outputs to the original dataset, preserving both.
+
+> **This uses the `app` service defined in `docker-compose.yml`, giving you access to the full environment including Prefect and PostgreSQL, which are required for managing flows and task state.**
 
 ## Features
 
@@ -46,6 +56,7 @@ docker run --rm -it -v $(pwd):/workspace -w /workspace codablellm \
 - Easy integration with LLMs to refine or augment extracted code (e.g. rename variables, insert comments, etc.)
 - Language-agnostic design with support for plugin-based extractor and decompiler extensions.
 - Extendable API for building your own workflows and datasets.
+- Fast and scalable, using Prefect to orchestrate and parallelize code extraction, transformation, and dataset generation across multiple processes and tasks.
 
 ## Documentation
 
