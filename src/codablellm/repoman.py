@@ -5,7 +5,7 @@ High-level functionality for creating code datasets from source code repositorie
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, replace
 import logging
-from typing import Collection, Generator, Literal, Optional
+from typing import Collection, Generator, Literal, Optional, no_type_check
 
 from prefect import flow, task
 
@@ -116,6 +116,7 @@ def manage(build_command: utils.Command, path: utils.PathLike,
                 show_progress=config.show_progress)
 
 
+@no_type_check
 @flow
 def create_source_dataset(path: utils.PathLike,
                           config: SourceCodeDatasetConfig = SourceCodeDatasetConfig(
@@ -124,6 +125,7 @@ def create_source_dataset(path: utils.PathLike,
     return SourceCodeDataset.from_repository(path, config=config)
 
 
+@no_type_check
 @flow
 def create_decompiled_dataset(path: utils.PathLike,
                               bins: Collection[utils.PathLike],
@@ -198,29 +200,29 @@ def compile_dataset_task(
         rebased=generation_mode == 'temp' or generation_mode == 'temp-append'
     ) as paths:
         path, bins = paths
-    # Normalize binaries
-    bins = [bins] if isinstance(bins, str) else bins
-    # Build repository
-    with manage(build_command, path, config=manage_config):
-        future = DecompiledCodeDataset.from_repository.submit(path, bins, extract_config=extract_config,
-                                                              dataset_config=dataset_config)
-        if generation_mode == 'temp-append':
-            # Create a copy of the extract config to extract the path without a transform
-            no_transform_extract_config = replace(
-                extract_config,
-                transform=None
-            )
-            original_futures = compile_dataset_task.submit(
-                original_path, bins, build_command,
-                manage_config=manage_config,
-                extract_config=no_transform_extract_config,
-                dataset_config=dataset_config,
-                generation_mode='path'
-            )
-            return DecompiledCodeDataset.create_aligned_dataset(
-                original_futures.result(), future.result()
-            )
-        return future.result()
+        # Normalize binaries
+        bins = [bins] if isinstance(bins, str) else bins
+        # Build repository
+        with manage(build_command, path, config=manage_config):
+            future = DecompiledCodeDataset.from_repository.submit(path, bins, extract_config=extract_config,
+                                                                  dataset_config=dataset_config)  # type: ignore
+            if generation_mode == 'temp-append':
+                # Create a copy of the extract config to extract the path without a transform
+                no_transform_extract_config = replace(
+                    extract_config,
+                    transform=None
+                )
+                original_futures = compile_dataset_task.submit(
+                    original_path, bins, build_command,
+                    manage_config=manage_config,
+                    extract_config=no_transform_extract_config,
+                    dataset_config=dataset_config,
+                    generation_mode='path'
+                )
+                return DecompiledCodeDataset.create_aligned_dataset(
+                    original_futures.result(), future.result()
+                )
+            return future.result()
 
 
 @flow
