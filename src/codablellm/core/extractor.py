@@ -247,7 +247,13 @@ def extract_directory_task(
     logger.info('Submitting extraction tasks...')
     futures = [task(extractor.extract).submit(file, repo_path=path)
                for file, extractor in file_extractor_map.items()]
-    return [function for future in futures for function in future.result()]
+    functions = [
+        function for future in futures for function in future.result()]
+    if config.transform:
+        # Apply transformation
+        logger.info('Applying transformation...')
+        functions = task(config.transform).map(functions).result()
+    return functions
 
 
 @flow
