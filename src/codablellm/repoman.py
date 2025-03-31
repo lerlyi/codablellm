@@ -194,6 +194,7 @@ def compile_dataset_task(
         The generated dataset containing mappings of decompiled functions to their potential source code functions.
     '''
     original_path = path
+    original_bins = bins
     with utils.prepared_dir(
         path,
         subpaths=bins,
@@ -213,7 +214,7 @@ def compile_dataset_task(
                     transform=None
                 )
                 original_futures = compile_dataset_task.submit(
-                    original_path, bins, build_command,
+                    original_path, original_bins, build_command,
                     manage_config=manage_config,
                     extract_config=no_transform_extract_config,
                     dataset_config=dataset_config,
