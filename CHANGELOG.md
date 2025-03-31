@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/dmanuel64/codablellm/compare/v0.1.0...v1.1.0) (2025-03-31)
+
+
+### Miscellaneous Chores
+
+* release 1.1.0 ([1ae4305](https://github.com/dmanuel64/codablellm/commit/1ae4305b11b88a16246aba8b5a22ee5b05f2e044))
+
 ## 1.0.6 (2025-03-27)
 
 
