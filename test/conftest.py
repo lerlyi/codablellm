@@ -7,7 +7,6 @@ from pytest import MonkeyPatch, TempPathFactory, fixture
 from codablellm.core import utils
 from codablellm.core import decompiler
 from codablellm.core.decompiler import Decompiler
-from codablellm.core.decompiler import _decompile
 from codablellm.core.function import DecompiledFunction, DecompiledFunctionJSONObject
 
 FAILING_COMMAND = 'FAILED'

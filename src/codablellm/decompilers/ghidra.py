@@ -75,7 +75,7 @@ class Ghidra(Decompiler):
                     try:
                         utils.execute_command([str(self._ghidra_path), project_dir, 'codablellm', '-import', str(path),
                                                '-scriptPath', str(
-                                                   Ghidra.SCRIPT_PATH.parent), '-noanalysis',
+                                                   Ghidra.SCRIPT_PATH.parent), 
                                                '-postScript', Ghidra.SCRIPT_PATH.name, str(
                                                    output_path),
                                                '-deleteProject'],
