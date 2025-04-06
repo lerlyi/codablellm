@@ -7,31 +7,31 @@ to use different backends for binary decompilation.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-import importlib
 import logging
 from pathlib import Path
-from typing import Any, Collection, Dict, List, Mapping, NamedTuple, Optional, Sequence, Set, Union
+from typing import Any, List, Mapping, NamedTuple, Optional, Sequence, Type
 
 from prefect import flow, task
+from rich import print
 
 from codablellm.core.function import DecompiledFunction
-from codablellm.core.utils import PathLike, is_binary
-from codablellm.exceptions import DecompilerNotFound
+from codablellm.core.utils import DynamicSymbol, PathLike, dynamic_import, is_binary
 
 logger = logging.getLogger('codablellm')
 
 
 class RegisteredDecompiler(NamedTuple):
     name: str
-    class_path: str
+    symbol: DynamicSymbol
 
 
 _decompiler: RegisteredDecompiler = RegisteredDecompiler(
-    'Ghidra', 'codablellm.decompilers.ghidra.Ghidra'
+    'Ghidra', (Path(__file__).parent.parent /
+               'decompilers' / 'ghidra.py', 'Ghidra')
 )
 
 
-def set(name: str, class_path: str) -> None:
+def set(name: str, file: PathLike, class_name: str) -> None:
     '''
     Sets the decompiler used by `codablellm`.
 
@@ -40,15 +40,15 @@ def set(name: str, class_path: str) -> None:
     '''
     global _decompiler
     old_decompiler = _decompiler
-    _decompiler = RegisteredDecompiler(name, class_path)
+    _decompiler = RegisteredDecompiler(name, (Path(file), class_name))
     # Instantiate decompiler to ensure it can be properly imported
     try:
         create_decompiler()
     except:
-        logger.error(f'Could not create "{name}" extractor')
+        logger.error(f'Could not create {repr(name)} extractor')
         _decompiler = old_decompiler
         raise
-    logger.info(f'Using "{name}" ({class_path}) as the decompiler')
+    logger.info(f'Using {repr(name)} ({file}::{class_name}) as the decompiler')
 
 
 def get() -> RegisteredDecompiler:
@@ -88,13 +88,9 @@ def create_decompiler(*args: Any, **kwargs: Any) -> Decompiler:
     Raises:
         DecompilerNotFound: If the specified decompiler cannot be imported or if the class cannot be found in the specified module.
     '''
-    module_path, class_name = _decompiler.class_path.rsplit('.', 1)
-    try:
-        module = importlib.import_module(module_path)
-        return getattr(module, class_name)(*args, **kwargs)
-    except (ModuleNotFoundError, AttributeError) as e:
-        raise DecompilerNotFound('Could not import '
-                                 f'"{module_path}.{class_name}"') from e
+    file, symbol = _decompiler.symbol
+    decompiler_class: Type[Decompiler] = dynamic_import(file, symbol)
+    return decompiler_class(*args, **kwargs)
 
 
 @dataclass(frozen=True)
@@ -151,7 +147,9 @@ def decompile_task(*paths: PathLike,
     # Submit decompile tasks
     logger.info(f'Submitting {get().name} decompile tasks...')
     futures = [task(decompiler.decompile).submit(bin) for bin in bins]
-    return [function for future in futures for function in future.result()]
+    functions = [function for future in futures for function in future.result()]
+    logger.info(f'Successfully decompiled {len(functions)} functions')
+    return functions
 
 
 @flow

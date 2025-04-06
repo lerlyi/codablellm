@@ -12,6 +12,7 @@ import logging
 import os
 from pathlib import Path
 from queue import Queue
+import sys
 import tempfile
 from typing import (Any, Callable, Collection, Dict, Final, Generator, Iterable, List, Literal, Optional, Protocol, Sequence, Set, Tuple,
                     Type, TypeVar, Union, overload)
@@ -396,7 +397,8 @@ def execute_command(command: Command,
     Raises:
         CalledProcessError: If the command fails and error_handler is 'none'.
     '''
-    command_str = command if isinstance(command, str) else ' '.join(str(c) for c in command)
+    command_str = command if isinstance(
+        command, str) else ' '.join(str(c) for c in command)
     log_task = logger.debug if log_level == 'debug' else logger.info
     output = ''
 
@@ -409,7 +411,8 @@ def execute_command(command: Command,
 
         try:
             with ctx:
-                output = subprocess.check_output(command, text=True, cwd=cwd, stderr=subprocess.STDOUT)
+                output = subprocess.check_output(
+                    command, text=True, cwd=cwd, stderr=subprocess.STDOUT)
             log_task(f'Successfully executed "{command_str}"')
             break  # Exit loop on success
 
@@ -417,7 +420,8 @@ def execute_command(command: Command,
             output = e.output
             logger.error(f'Command failed: "{command_str}"')
             if print_errors:
-                print(f'[red][b]Command failed: "{command_str}"[/b]\nOutput: {output}')
+                print(
+                    f'[red][b]Command failed: "{command_str}"[/b]\nOutput: {output}')
 
             if error_handler == 'interactive':
                 result = Prompt.ask(
@@ -439,7 +443,8 @@ def execute_command(command: Command,
                         "Enter the new command to execute",
                         default=f'"{command_str}"'
                     ).strip('"\'')
-                    command = edited_command if isinstance(edited_command, list) else edited_command.split()
+                    command = edited_command if isinstance(
+                        edited_command, list) else edited_command.split()
                     continue
 
             # If not interactive, raise immediately
@@ -448,7 +453,6 @@ def execute_command(command: Command,
     if output:
         logger.debug(f'"{command_str}" output:\n"{output}"')
     return output
-
 
 
 REBASED_DIR_ENVIRON_KEY: Final[str] = 'CODABLELLM_REBASED_DIR'
@@ -532,3 +536,20 @@ def prepared_dir(path: PathLike,
         finally:
             # Remove rebased directory environment variable
             os.environ.pop(REBASED_DIR_ENVIRON_KEY, None)
+
+
+DynamicSymbol = Tuple[Path, str]
+
+
+def dynamic_import(file: PathLike, symbol: str) -> Any:
+    file = Path(file)
+    # Add parent directory to sys.path to allow for dynamic imports of extractors and mappers
+    sys.path.insert(0, str(file.parent))
+    try:
+        module = importlib.import_module(file.stem)
+        return getattr(module, symbol)
+    except ModuleNotFoundError as e:
+        raise ValueError(f'Cannot locate {repr(file.name)}') from e
+    except AttributeError as e:
+        raise ValueError(
+            f'Cannot find {repr(symbol)} in {repr(file.name)}') from e

@@ -37,11 +37,13 @@ class Ghidra(Decompiler):
     `analyzeHeadless` command.
     '''
 
-    SCRIPT_PATH: Final[Path] = Path(__file__).parent.parent / 'resources' / 'ghidra_scripts' / \
+    DEFAULT_DECOMPILE_SCRIPT: Final[Path] = Path(__file__).parent.parent / 'resources' / 'ghidra_scripts' / \
         'decompile.py'
     '''
     The path to the Ghidra decompiler script (`decompile.py`) used during the decompilation process.
     '''
+
+    _decompile_script = DEFAULT_DECOMPILE_SCRIPT
 
     def __init__(self) -> None:
         '''
@@ -75,8 +77,8 @@ class Ghidra(Decompiler):
                     try:
                         utils.execute_command([str(self._ghidra_path), project_dir, 'codablellm', '-import', str(path),
                                                '-scriptPath', str(
-                                                   Ghidra.SCRIPT_PATH.parent), 
-                                               '-postScript', Ghidra.SCRIPT_PATH.name, str(
+                                                   Ghidra.get_decompile_script().parent),
+                                               '-postScript', Ghidra.get_decompile_script().name, str(
                                                    output_path),
                                                '-deleteProject'],
                                               task=f'Decompiling {path.name}...',
@@ -106,7 +108,7 @@ class Ghidra(Decompiler):
             path: The absolute path to Ghidra's `analyzeHeadless` command.
         '''
         os.environ[Ghidra.ENVIRON_KEY] = str(path)
-        logger.debug(f'Set {Ghidra.ENVIRON_KEY}="{path}"')
+        logger.info(f'Set {Ghidra.ENVIRON_KEY}="{path}"')
 
     @staticmethod
     def get_path() -> Optional[Path]:
@@ -118,3 +120,23 @@ class Ghidra(Decompiler):
         '''
         value = os.environ.get(Ghidra.ENVIRON_KEY)
         return Path(value) if value else None
+
+    @staticmethod
+    def set_decompile_script(path: PathLike) -> None:
+        '''
+        Set's the path to Ghidra's `analyzeHeadless` command.
+
+        Parameters:
+            path: The absolute path to Ghidra's `analyzeHeadless` command.
+        '''
+        Ghidra._decompile_script = Path(path)
+
+    @staticmethod
+    def get_decompile_script() -> Path:
+        '''
+        Retrieves the path to Ghidra's `analyzeHeadless` command.
+
+        Returns:
+            The path to Ghidra's `analyzeHeadless` command as a `Path` object, or `None` if the environment variable is not set.
+        '''
+        return Ghidra._decompile_script

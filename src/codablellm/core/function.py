@@ -347,7 +347,7 @@ class DecompiledFunction(Function):
             return stripped_symbol
 
         editor = ASTEditor(C_PARSER, definition)
-        logger.debug(f'Stripping {self.name}...')
+        logger.info(f'Stripping {self.name}...')
         editor.match_and_edit(GET_C_SYMBOLS_QUERY,
                               {'function.symbols': strip})
         definition = editor.source_code

@@ -6,27 +6,27 @@ Source code extractors are responsible for parsing and extracting function defin
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-import importlib
 import logging
 from pathlib import Path
 from typing import (
     Any, Callable, Dict, Final, List, Literal, Mapping, NamedTuple, Optional, OrderedDict,
-    Sequence, Set
+    Sequence, Set, Type
 )
 
 from prefect import flow, task
+from rich import print
 
 from codablellm.core.function import SourceFunction
-from codablellm.core.utils import PathLike
+from codablellm.core.utils import DynamicSymbol, PathLike, dynamic_import
 
 
 class RegisteredExtractor(NamedTuple):
     language: str
-    class_path: str
+    symbol: DynamicSymbol
 
 
 _EXTRACTORS: Final[OrderedDict[str, RegisteredExtractor]] = OrderedDict({
-    'C': RegisteredExtractor('C', 'codablellm.languages.c.CExtractor')
+    'C': RegisteredExtractor('C', (Path(__file__).parent.parent / 'languages' / 'c.py', 'CExtractor'))
 })
 
 logger = logging.getLogger('codablellm')
@@ -36,7 +36,7 @@ def get_registered() -> Sequence[RegisteredExtractor]:
     return list(_EXTRACTORS.values())
 
 
-def register(language: str, class_path: str,
+def register(language: str, file: PathLike, class_name: str,
              order: Optional[Literal['first', 'last']] = None) -> None:
     '''
     Registers a new source code extractor for a given language.
@@ -46,24 +46,26 @@ def register(language: str, class_path: str,
         class_path: The full import path to the extractor class.
         order: Optional order for insertion. If 'first', prepends the extractor; if 'last', appends it.
     '''
-    registered_extractor = RegisteredExtractor('C', class_path)
+    registered_extractor = RegisteredExtractor('C', (Path(file), class_name))
     if _EXTRACTORS.setdefault(language, registered_extractor) != registered_extractor:
-        raise ValueError(f'"{language}" is already a registered extractor')
+        raise ValueError(f'{repr(language)} is already a registered extractor')
     if order:
         _EXTRACTORS.move_to_end(language, last=order == 'last')
     # Instantiate extractor to ensure it can be properly imported
     try:
         create_extractor(language)
     except:
-        logger.error(f'Could not create "{language}" extractor')
+        logger.error(f'Could not create {repr(language)} extractor')
         unregister(language)
         raise
-    logger.info(f'Registered "{language}" extractor at "{class_path}"')
+    logger.info(
+        f'Registered {repr(language)} extractor at {file}::{class_name}'
+    )
 
 
 def unregister(language: str) -> None:
     del _EXTRACTORS[language]
-    logger.info(f'Unregistered "{language}" extractor')
+    logger.info(f'Unregistered {repr(language)} extractor')
 
 
 def unregister_all() -> None:
@@ -71,7 +73,7 @@ def unregister_all() -> None:
     logger.info('Unregistered all extractors')
 
 
-def set_registered(extractors: Mapping[str, str]) -> None:
+def set_registered(extractors: Mapping[str, DynamicSymbol]) -> None:
     '''
     Replaces all existing source code extractors with a new set.
 
@@ -79,8 +81,8 @@ def set_registered(extractors: Mapping[str, str]) -> None:
         extractors: A mapping from language names to extractor class paths.
     '''
     unregister_all()
-    for language, class_path in extractors.items():
-        register(language, class_path)
+    for language, (file, symbol) in extractors.items():
+        register(language, file, symbol)
 
 
 class Extractor(ABC):
@@ -135,10 +137,9 @@ def create_extractor(language: str, *args: Any, **kwargs: Any) -> Extractor:
         ExtractorNotFound: If no extractor is registered for the specified language.
     '''
     if language in _EXTRACTORS:
-        module_path, class_name = _EXTRACTORS[language].class_path.rsplit(
-            '.', 1)
-        module = importlib.import_module(module_path)
-        return getattr(module, class_name)(*args, **kwargs)
+        file, symbol = _EXTRACTORS[language].symbol
+        extractor_class: Type[Extractor] = dynamic_import(file, symbol)
+        return extractor_class(*args, **kwargs)
     raise ValueError(f'"{language}" is not a registered extractor')
 
 
@@ -235,7 +236,7 @@ def extract_directory_task(
         # Locate extractable files
         files = extractor.get_extractable_files(path)
         if not any(files):
-            logger.debug(f'No "{language}" files were located')
+            logger.debug(f'No {repr(language)} files were located')
         for file in files:
             if file_extractor_map.setdefault(file, extractor) != extractor:
                 logger.info(
@@ -253,6 +254,7 @@ def extract_directory_task(
         # Apply transformation
         logger.info('Applying transformation...')
         functions = task(config.transform).map(functions).result()
+    logger.info(f'Successfully extracted {len(functions)} functions')
     return functions
 
 

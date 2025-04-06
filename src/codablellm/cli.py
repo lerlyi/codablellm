@@ -3,23 +3,22 @@ The codablellm command line interface.
 '''
 
 from enum import Enum
-import importlib
 import json
 from pathlib import Path
 import logging
-import os
-import sys
 
 
 from click import BadParameter
 from rich import print
 from typer import Argument, Exit, Option, Typer
-from typing import Any, Dict, Final, List, Optional, Tuple
+from typing import Dict, Final, List, Optional, Tuple
 
 import codablellm
 from codablellm.core import downloader
+from codablellm.core import decompiler
 from codablellm.core.decompiler import DecompileConfig
 from codablellm.core.extractor import ExtractConfig, Transform
+from codablellm.core.utils import DynamicSymbol, dynamic_import
 from codablellm.dataset import DecompiledCodeDatasetConfig, Mapper, SourceCodeDatasetConfig
 from codablellm.decompilers.ghidra import Ghidra
 from codablellm.repoman import ManageConfig
@@ -72,38 +71,6 @@ def validate_dataset_format(path: Path) -> Path:
                                                              '.html', '.xml']]:
         raise BadParameter(f'Unsupported dataset format: "{path.suffix}"')
     return path
-
-# Argument/option parsers
-
-
-def dynamic_import(path: str) -> Any:
-    if '/' in path:
-        file_delimeter = '/'
-    elif '\\' in path:
-        file_delimeter = '\\'
-    else:
-        file_delimeter = None
-    if file_delimeter:
-        parent_str_dir, path = path.rsplit(file_delimeter, maxsplit=1)
-        parent_dir = Path(parent_str_dir).resolve()
-    else:
-        parent_dir = Path(os.getcwd())
-    # Add parent directory to sys.path to allow for dynamic imports of extractors and mappers
-    sys.path.insert(0, str(parent_dir))
-    module_path, callable_name = path.rsplit('.', 1)
-    try:
-        module = importlib.import_module(module_path)
-        return getattr(module, callable_name)
-    except (ModuleNotFoundError, AttributeError) as e:
-        raise BadParameter(f'Cannot find "{path}"') from e
-
-
-def parse_transform(callable_path: str) -> Transform:
-    return dynamic_import(callable_path)
-
-
-def parse_mapper(callable_path: str) -> Mapper:
-    return dynamic_import(callable_path)
 
 # Miscellaneous argument/option callbacks
 
@@ -166,9 +133,11 @@ DECOMPILE: Final[bool] = Option(False, '--decompile / --source', '-d / -s',
                                 help='If the language supports decompiled code mapping, use '
                                 '--decompiler to decompile the binaries specified by the bins '
                                 'argument and add decompiled code to the dataset.')
-DECOMPILER: Final[str] = Option(codablellm.decompiler._decompiler.class_path,
-                                help='Decompiler to use.',
-                                metavar='CLASSPATH')
+DECOMPILER: Final[DynamicSymbol] = Option(decompiler._decompiler.symbol,
+                                          dir_okay=False, exists=True,
+                                          help='Decompiler to use.',
+                                          metavar='<FILE CLASS>'
+                                          )
 DEBUG: Final[bool] = Option(False, '--debug', callback=toggle_debug_logging,
                             hidden=True)
 EXCLUDE_SUBPATH: Final[Optional[List[Path]]] = Option(list(DEFAULT_SOURCE_CODE_DATASET_CONFIG.extract_config.exclude_subpaths),
@@ -185,6 +154,8 @@ EXTRACTORS: Final[Optional[Tuple[ExtractorConfigOperation, Path]]] = Option(None
                                                                             metavar='<[prepend|append|set] FILE>',
                                                                             help='Order of extractors '
                                                                             'to use, including custom ones.')
+EXTRA_PATH: Final[List[Path]] = Option([], exists=True,
+                                       help='Extra files/directories to add to the repository (e.g. build scripts).')
 GENERATION_MODE: Final[GenerationMode] = Option(DEFAULT_SOURCE_CODE_DATASET_CONFIG.generation_mode,
                                                 help='Specify how the dataset should be '
                                                 'generated from the repository.')
@@ -192,6 +163,12 @@ GHIDRA: Final[Optional[Path]] = Option(Ghidra.get_path(), envvar=Ghidra.ENVIRON_
                                        callback=lambda v: Ghidra.set_path(
                                            v) if v else None,
                                        help="Path to Ghidra's analyzeHeadless command.")
+GHIDRA_SCRIPT: Final[Path] = Option(
+    Ghidra.get_decompile_script(),
+    dir_okay=False, exists=True,
+    callback=lambda v: Ghidra.set_decompile_script(v),
+    help='Path to the decompile script for Ghidra that serialzies a DecompiledFunctionJSONObject'
+)
 GIT: Final[bool] = Option(False, '--git / --archive', help='Determines whether --url is a Git '
                           'download URL or a tarball/zipfile download URL.')
 BUILD_ERROR_HANDLING: Final[CommandErrorHandler] = Option(DEFAULT_MANAGE_CONFIG.build_error_handling,
@@ -204,11 +181,11 @@ CLEANUP_ERROR_HANDLING: Final[CommandErrorHandler] = Option(DEFAULT_MANAGE_CONFI
                                                             'during the cleanup process. Options include '
                                                             'ignoring the error, raising an exception, or '
                                                             'prompting the user for manual intervention.')
-MAPPER: Final[Mapper] = Option('codablellm.dataset.DEFAULT_MAPPER',
-                               metavar='CALLABLEPATH',
-                               help='Mapper to use for mapping decompiled functions to source '
-                               'code functions.',
-                               parser=parse_mapper)
+MAPPER: Final[DynamicSymbol] = Option((Path(__file__).parent / 'dataset.py', 'DEFAULT_MAPPER'),
+                                      dir_okay=False, exists=True,
+                                      metavar='<FILE FUNCTION>',
+                                      help='Mapper to use for mapping decompiled functions to source '
+                                      'code functions.')
 MAX_DECOMPILER_WORKERS: Final[Optional[int]] = Option(DEFAULT_DECOMPILED_CODE_DATASET_CONFIG.decompiler_config.max_workers,
                                                       min=1,
                                                       help='Maximum number of workers to use to '
@@ -222,13 +199,13 @@ VERBOSE: Final[bool] = Option(False, '--verbose', '-v',
                               help='Display verbose logging information.')
 VERSION: Final[bool] = Option(False, '--version', is_eager=True, callback=show_version,
                               help='Shows the installed version of codablellm and exit.')
-TRANSFORM: Final[Optional[codablellm.extractor.Transform]] = Option(DEFAULT_SOURCE_CODE_DATASET_CONFIG.extract_config.transform,
-                                                                    '--transform', '-t',
-                                                                    metavar='CALLABLEPATH',
-                                                                    help='Transformation function to use '
-                                                                    'when extracting source code '
-                                                                    'functions.',
-                                                                    parser=parse_transform)
+TRANSFORM: Final[Optional[DynamicSymbol]] = Option(DEFAULT_SOURCE_CODE_DATASET_CONFIG.extract_config.transform,
+                                                   '--transform', '-t',
+                                                   dir_okay=False, exists=True,
+                                                   metavar='<FILE FUNCTION>',
+                                                   help='Transformation function to use '
+                                                   'when extracting source code '
+                                                   'functions.')
 RUN_FROM: Final[RunFrom] = Option(DEFAULT_MANAGE_CONFIG.run_from,
                                   help="Where to run build/clean commands from: 'repo' (the root "
                                   "of the repository, whether real or temp) or 'cwd' (your "
@@ -252,33 +229,35 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
             cleanup_error_handling: CommandErrorHandler = CLEANUP_ERROR_HANDLING,
             checkpoint: int = CHECKPOINT,
             debug: bool = DEBUG, decompile: bool = DECOMPILE,
-            decompiler: str = DECOMPILER,
+            decompiler: DynamicSymbol = DECOMPILER,
             exclude_subpath: Optional[List[Path]] = EXCLUDE_SUBPATH,
             exclusive_subpath: Optional[List[Path]] = EXCLUSIVE_SUBPATH,
             extractors: Optional[Tuple[ExtractorConfigOperation,
                                        Path]] = EXTRACTORS,
+            extra_path: List[Path] = EXTRA_PATH,
             generation_mode: GenerationMode = GENERATION_MODE,
             git: bool = GIT, ghidra: Optional[Path] = GHIDRA,
-            mapper: Mapper = MAPPER,
+            ghidra_script: Path = GHIDRA_SCRIPT,
+            mapper: DynamicSymbol = MAPPER,
             max_decompiler_workers: Optional[int] = MAX_DECOMPILER_WORKERS,
             max_extractor_workers: Optional[int] = MAX_EXTRACTOR_WORKERS,
             run_from: RunFrom = RUN_FROM,
             strip: bool = STRIP,
-            transform: Optional[codablellm.extractor.Transform] = TRANSFORM,
+            transform: Optional[DynamicSymbol] = TRANSFORM,
             use_checkpoint: Optional[bool] = USE_CHECKPOINT,
             url: str = URL, verbose: bool = VERBOSE, version: bool = VERSION) -> None:
     '''
     Creates a code dataset from a local repository.
     '''
     # Configure decompiler
-    codablellm.decompiler.set(f'(CLI-Set) {decompiler.split('.')[-1]}',
-                              decompiler)
+    file, symbol = decompiler
+    codablellm.decompiler.set(f'(CLI-Set) {symbol}', file, symbol)
     if extractors:
         # Configure function extractors
         operation, config_file = extractors
         try:
             # Load JSON file containing extractors
-            configured_extractors: Dict[str, str] = json.loads(
+            configured_extractors: Dict[str, DynamicSymbol] = json.loads(
                 Path.read_text(config_file)
             )
         except json.JSONDecodeError as e:
@@ -287,9 +266,9 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
         if operation == ExtractorConfigOperation.SET:
             codablellm.extractor.set_registered(configured_extractors)
         else:
-            for language, class_path in configured_extractors.items():
+            for language, (file, symbol) in configured_extractors.items():
                 order = 'last' if operation == ExtractorConfigOperation.APPEND else 'first'
-                codablellm.extractor.register(language, class_path,
+                codablellm.extractor.register(language, file, symbol,
                                               order=order)
     if url:
         # Download remote repository
@@ -298,19 +277,15 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
         else:
             downloader.decompress(url, repo)
     # Create the extractor configuration
-    # if use_checkpoint is None:
-    #     if any(codablellm.extractor.get_checkpoint_files()):
-    #         use_checkpoint = Confirm.ask(
-    #             'Extraction checkpoint files detected. Would you like to resume from the most '
-    #             'recent checkpoint?',
-    #             case_sensitive=False
-    #         )
-    #     else:
-    #         use_checkpoint = False
+    if transform:
+        file, symbol = transform
+        transform_callable: Optional[Transform] = dynamic_import(file, symbol)
+    else:
+        transform_callable = transform
     extract_config = ExtractConfig(
         max_workers=max_extractor_workers,
         accurate_progress=accurate,
-        transform=transform,
+        transform=transform_callable,
         exclusive_subpaths=set(
             exclusive_subpath) if exclusive_subpath else set(),
         exclude_subpaths=set(exclude_subpath) if exclude_subpath else set(),
@@ -326,13 +301,15 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
         if not bins or not any(bins):
             raise BadParameter('Must specify at least one binary for decompiled code datasets.',
                                param_hint='bins')
+        file, symbol = mapper
+        mapper_callable: Mapper = dynamic_import(file, symbol)
         dataset_config = DecompiledCodeDatasetConfig(
             extract_config=extract_config,
             strip=strip,
             decompiler_config=DecompileConfig(
                 max_workers=max_decompiler_workers
             ),
-            mapper=mapper,
+            mapper=mapper_callable,
         )
         if not build:
             dataset = codablellm.create_decompiled_dataset(repo, bins,
@@ -343,7 +320,8 @@ def command(repo: Path = REPO, save_as: Path = SAVE_AS, bins: Optional[List[Path
                 cleanup_command=cleanup,
                 run_from=run_from,  # type: ignore
                 build_error_handling=build_error_handling,  # type: ignore
-                cleanup_error_handling=cleanup_error_handling)  # type: ignore
+                cleanup_error_handling=cleanup_error_handling,  # type: ignore
+                extra_paths=extra_path)
             dataset = codablellm.compile_dataset(repo, bins, build,
                                                  manage_config=manage_config,
                                                  extract_config=extract_config,

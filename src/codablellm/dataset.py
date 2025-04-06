@@ -235,7 +235,7 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
             function = original.get(transformed_function)
             if function:
                 # Annotate with metadata
-                logger.debug(f'Annotating {function.uid}...')
+                logger.info(f'Annotating {function.uid}...')
                 annotated_function = replace(function,
                                              _metadata={
                                                  **function.metadata,
@@ -633,7 +633,7 @@ class DecompiledCodeDataset(Dataset, Mapping[str, MappedFunction]):
                 transformed_function, (None, None))
             if decompiled_function and source_functions:
                 # Annotate with metadata
-                logger.debug(f'Annotating {decompiled_function.uid}...')
+                logger.info(f'Annotating {decompiled_function.uid}...')
                 annotated_function = replace(decompiled_function,
                                              _metadata={
                                                  **decompiled_function.metadata,

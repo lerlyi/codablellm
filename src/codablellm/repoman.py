@@ -3,9 +3,10 @@ High-level functionality for creating code datasets from source code repositorie
 '''
 
 from contextlib import contextmanager, nullcontext
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 import logging
-from typing import Collection, Generator, Literal, Optional, no_type_check
+import shutil
+from typing import Collection, Generator, Literal, Optional, Sequence, Tuple, Union, no_type_check
 
 from prefect import flow, task
 
@@ -90,6 +91,7 @@ class ManageConfig:
     This option controls how relative paths within commands are resolved and can affect the behavior
     of tools that assume a specific project root.
     '''
+    extra_paths: Sequence[utils.PathLike] = field(default_factory=list)
 
 
 @contextmanager
@@ -106,6 +108,9 @@ def manage(build_command: utils.Command, path: utils.PathLike,
     Returns:
         A context manager that builds the repository upon entering and optionally cleans up build artifacts upon exiting, based on the provided configuration.
     '''
+    # Move extra files to repository
+    for extra_path in config.extra_paths:
+        shutil.copy(extra_path, path)
     build(build_command, error_handler=config.build_error_handling,
           cwd=path if config.run_from == 'repo' else None,
           show_progress=config.show_progress)
