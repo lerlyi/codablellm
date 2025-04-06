@@ -68,4 +68,4 @@ Complete documentation is available on [Read the Docs](https://codablellm.readth
 
 ## Contributing
 
-We welcome contributions from the community! See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines, development setup, and how to get started.
+We welcome contributions from the community! See [CONTRIBUTING.md](https://github.com/dmanuel64/codablellm/blob/main/CONTRIBUTING.md) for guidelines, development setup, and how to get started.

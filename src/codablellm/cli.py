@@ -13,7 +13,6 @@ import sys
 
 from click import BadParameter
 from rich import print
-from rich.prompt import Confirm
 from typer import Argument, Exit, Option, Typer
 from typing import Any, Dict, Final, List, Optional, Tuple
 
