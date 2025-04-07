@@ -168,7 +168,7 @@ def create_decompiled_dataset(
     )
 
 
-@task
+@task(name="compile_dataset", on_completion=[utils.benchmark_task])
 def compile_dataset_task(
     path: utils.PathLike,
     bins: Collection[utils.PathLike],

@@ -278,7 +278,7 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
         return cls(annotated_functions)
 
     @classmethod
-    @task
+    @task(name="create_source_dataset", on_completion=[utils.benchmark_task])
     def from_repository(
         cls,
         path: utils.PathLike,
@@ -390,16 +390,6 @@ class DecompiledCodeDatasetConfig:
     )
     """
     Configuration settings for decompiling binaries.
-    """
-    strip: bool = False
-    """
-    Indicates whether the decompiled binaries should be stripped
-
-    A Note on Decompiled Code Stripping:
-        Stripping occurs after decompilation by replacing the symbols in the decompiled code
-        with ambiguous symbols. This approach simulates stripped binaries but does not
-        necessarily reflect actual stripped functions because the decompiler may still have
-        access to debug symbols during the decompilation process.
     """
     mapper: Mapper = DEFAULT_MAPPER
     """
@@ -536,7 +526,7 @@ class DecompiledCodeDataset(Dataset, Mapping[str, MappedFunction]):
         )
 
     @classmethod
-    @task
+    @task(name="create_decompiled_dataset", on_completion=[utils.benchmark_task])
     def from_repository(
         cls,
         path: utils.PathLike,
@@ -615,7 +605,7 @@ class DecompiledCodeDataset(Dataset, Mapping[str, MappedFunction]):
         return fn_map
 
     @staticmethod
-    @task
+    @task(name="align_functions", on_completion=[utils.benchmark_task])
     def _map_decompiled_function(
         decompiled_function: DecompiledFunction,
         function_name_map: Dict[str, List[SourceFunction]],
@@ -625,16 +615,8 @@ class DecompiledCodeDataset(Dataset, Mapping[str, MappedFunction]):
         source_functions = [
             s for s in source_candidates if config.mapper(decompiled_function, s)
         ]
-
         if not source_functions:
             return None
-
-        if config.strip:
-            stripped = task(decompiled_function.to_stripped).submit()
-            decompiled_function = stripped.result()  # Wait for strip
-            if decompiled_function is None:
-                return None
-
         return MappedFunction(decompiled_function, SourceCodeDataset(source_functions))
 
     @classmethod

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, Final, Mapping, Optional, TypedDict, no_type_check
 
 import tree_sitter_c as tsc
+from deprecated import deprecated
 from tree_sitter import Language, Node, Parser
 
 from codablellm.core.utils import ASTEditor, JSONObject, SupportsJSON
@@ -342,6 +343,7 @@ class SourceFunction(Function):
 class DecompiledFunctionJSONObject(FunctionJSONObject):
     assembly: str
     architecture: str
+    address: int
 
 
 GET_C_SYMBOLS_QUERY: Final[str] = (
@@ -378,7 +380,14 @@ class DecompiledFunction(Function):
     """
     The architecture of the binary file from which the function was decompiled.
     """
+    address: int
+    """
+    The starting address of the function in the binary file.
+    """
 
+    @deprecated(
+        reason="Use DecompileConfig.strip when creating datasets", version="1.2.0"
+    )
     def to_stripped(self) -> "DecompiledFunction":
         """
         Creates a stripped version of the decompiled function with anonymized symbol names.
@@ -416,7 +425,13 @@ class DecompiledFunction(Function):
             f for f in symbol_mapping.values() if f.startswith("sub_")
         )
         return DecompiledFunction(
-            self.uid, self.path, definition, first_function, assembly, self.architecture
+            self.uid,
+            self.path,
+            definition,
+            first_function,
+            assembly,
+            self.architecture,
+            self.address,
         )
 
     def to_json(self) -> DecompiledFunctionJSONObject:
@@ -424,6 +439,7 @@ class DecompiledFunction(Function):
         return {
             "assembly": self.assembly,
             "architecture": self.architecture,
+            "address": self.address,
             **function_json,
         }
 
@@ -452,6 +468,7 @@ class DecompiledFunction(Function):
             json_obj["definition"],
             json_obj["assembly"],
             json_obj["architecture"],
+            json_obj["address"],
             _metadata=json_obj["metadata"],
         )
         return function

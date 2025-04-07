@@ -55,6 +55,11 @@ class RunFrom(str, Enum):
     REPO = "repo"
 
 
+class SymbolRemover(str, Enum):
+    STRIP = "strip"
+    PSEUDO_STRIP = "pseudo-strip"
+
+
 # Default configurations
 
 
@@ -300,8 +305,8 @@ RUN_FROM: Final[RunFrom] = Option(
     "of the repository, whether real or temp) or 'cwd' (your "
     "current shell directory). Useful for managing relative path behavior.",
 )
-STRIP: Final[bool] = Option(
-    DEFAULT_DECOMPILED_CODE_DATASET_CONFIG.strip,
+SYMBOL_REMOVER: Final[SymbolRemover] = Option(
+    "strip",
     help="If a decompiled dataset is being created, strip the symbols "
     "after decompiling",
 )
@@ -345,7 +350,7 @@ def command(
     max_decompiler_workers: Optional[int] = MAX_DECOMPILER_WORKERS,
     max_extractor_workers: Optional[int] = MAX_EXTRACTOR_WORKERS,
     run_from: RunFrom = RUN_FROM,
-    strip: bool = STRIP,
+    symbol_remover: SymbolRemover = SYMBOL_REMOVER,
     transform: Optional[DynamicSymbol] = TRANSFORM,
     use_checkpoint: Optional[bool] = USE_CHECKPOINT,
     url: str = URL,
@@ -417,8 +422,10 @@ def command(
         mapper_callable: Mapper = dynamic_import(file, symbol)
         dataset_config = DecompiledCodeDatasetConfig(
             extract_config=extract_config,
-            strip=strip,
-            decompiler_config=DecompileConfig(max_workers=max_decompiler_workers),
+            decompiler_config=DecompileConfig(
+                max_workers=max_decompiler_workers,
+                symbol_remover=symbol_remover,  # type: ignore
+            ),
             mapper=mapper_callable,
         )
         if not build:

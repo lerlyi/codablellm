@@ -1,6 +1,6 @@
-'''
+"""
 Core utility functions for codablellm.
-'''
+"""
 
 import importlib
 import json
@@ -14,56 +14,73 @@ from contextlib import AbstractContextManager, contextmanager, nullcontext
 from functools import wraps
 from pathlib import Path
 from queue import Queue
-from typing import (Any, Callable, Collection, Dict, Final, Generator,
-                    Iterable, List, Literal, Optional, Protocol, Sequence, Set,
-                    Tuple, Type, TypeVar, Union, overload)
+from typing import (
+    Any,
+    Callable,
+    Collection,
+    Dict,
+    Final,
+    Generator,
+    Iterable,
+    List,
+    Literal,
+    Optional,
+    Protocol,
+    Sequence,
+    Set,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+    overload,
+)
 
+from prefect import State, Task
+from prefect.client.schemas.objects import TaskRun
 from rich import print
 from rich.prompt import Prompt
 from tree_sitter import Node, Parser
 
 from codablellm.exceptions import ExtraNotInstalled, TSParsingError
 
-logger = logging.getLogger('codablellm')
+logger = logging.getLogger("codablellm")
 
 PathLike = Union[Path, str]
-'''
+"""
 An object representing a file system path.
-'''
+"""
 
-JSONValue = Optional[Union[str, int, float,
-                           bool, List['JSONValue'], 'JSONObject']]
-'''
+JSONValue = Optional[Union[str, int, float, bool, List["JSONValue"], "JSONObject"]]
+"""
 Represents a valid JSON value
-'''
+"""
 JSONObject = Dict[str, JSONValue]
-'''
+"""
 Represents a JSON object.
-'''
+"""
 
-JSONObject_T = TypeVar('JSONObject_T', bound=JSONObject)
-SupportsJSON_T = TypeVar('SupportsJSON_T',
-                         bound='SupportsJSON')
+JSONObject_T = TypeVar("JSONObject_T", bound=JSONObject)
+SupportsJSON_T = TypeVar("SupportsJSON_T", bound="SupportsJSON")
 
 
 # TODO: remove JSON logic and use Pydantic Base Models instead of dataclasses
 class SupportsJSON(Protocol):
-    '''
+    """
     A class that supports JSON serialization/deserialization.
-    '''
+    """
 
     def to_json(self) -> JSONObject_T:  # type: ignore
-        '''
+        """
         Serializes this object to a JSON object.
 
         Returns:
             A JSON representation of the object.
-        '''
+        """
         ...
 
     @classmethod
     def from_json(cls: Type[SupportsJSON_T], json_obj: JSONObject_T) -> SupportsJSON_T:  # type: ignore
-        '''
+        """
         Deserializes a JSON object to this object.
 
         Parameters:
@@ -71,12 +88,12 @@ class SupportsJSON(Protocol):
 
         Returns:
             This object loaded from the JSON object.
-        '''
+        """
         ...
 
 
 def get_readable_file_size(size: int) -> str:
-    '''
+    """
     Converts number of bytes to a human readable output (i.e. bytes, KB, MB, GB, TB.)
 
     Parameters:
@@ -84,20 +101,20 @@ def get_readable_file_size(size: int) -> str:
 
     Returns:
         A human readable output of the number of bytes.
-    '''
-    kb = round(size / 2 ** 10, 3)
-    mb = round(size / 2 ** 20, 3)
-    gb = round(size / 2 ** 30, 3)
-    tb = round(size / 2 ** 40, 3)
+    """
+    kb = round(size / 2**10, 3)
+    mb = round(size / 2**20, 3)
+    gb = round(size / 2**30, 3)
+    tb = round(size / 2**40, 3)
 
-    for measurement, suffix in [(tb, 'TB'), (gb, 'GB'), (mb, 'MB'), (kb, 'KB')]:
+    for measurement, suffix in [(tb, "TB"), (gb, "GB"), (mb, "MB"), (kb, "KB")]:
         if measurement >= 1:
-            return f'{measurement} {suffix}'
-    return f'{size} bytes'
+            return f"{measurement} {suffix}"
+    return f"{size} bytes"
 
 
 def is_binary(file_path: PathLike) -> bool:
-    '''
+    """
     Checks if a file is a binary file.
 
     Parameters:
@@ -105,18 +122,18 @@ def is_binary(file_path: PathLike) -> bool:
 
     Returns:
         True if the file is a binary.
-    '''
+    """
     file_path = Path(file_path)
     if file_path.is_file():
-        with open(file_path, 'rb') as file:
+        with open(file_path, "rb") as file:
             # Read the first 1KB of the file and check for a null byte or non-printable characters
             chunk = file.read(1024)
-            return b'\0' in chunk or any(byte > 127 for byte in chunk)
+            return b"\0" in chunk or any(byte > 127 for byte in chunk)
     return False
 
 
 def resolve_kwargs(**kwargs: Any) -> Dict[str, Any]:
-    '''
+    """
     Filters out keyword arguments with `None` values.
 
     Returns a dictionary containing only key-value pairs where the value is not `None`.
@@ -126,31 +143,33 @@ def resolve_kwargs(**kwargs: Any) -> Dict[str, Any]:
 
     Returns:
         A dictionary of keyword arguments with `None` values removed.
-    '''
+    """
     return {k: v for k, v in kwargs.items() if v is not None}
 
 
 class ASTEditor:
-    '''
+    """
     A Tree-sitter AST editor.
-    '''
+    """
 
-    def __init__(self, parser: Parser, source_code: str, ensure_parsable: bool = True) -> None:
-        '''
+    def __init__(
+        self, parser: Parser, source_code: str, ensure_parsable: bool = True
+    ) -> None:
+        """
         Initializes the AST editor with a parser and source code.
 
         Parameters:
             parser: The `Parser` object used to parse the source code.
             source_code: The source code to be edited.
             ensure_parsable: If `True`, raises an error if edits result in an invalid AST.
-        '''
+        """
         self.parser = parser
         self.source_code = source_code
         self.ast = self.parser.parse(source_code.encode())
         self.ensure_parsable = ensure_parsable
 
     def edit_code(self, node: Node, new_code: str) -> None:
-        '''
+        """
         Edits the source code at the specified AST node and updates the AST.
 
         Parameters:
@@ -159,16 +178,16 @@ class ASTEditor:
 
         Raises:
             TSParsingError: If `ensure_parsable` is `True` and the resulting AST has parsing errors.
-        '''
+        """
         # Calculate new code metrics
         num_bytes = len(new_code)
-        num_lines = new_code.count('\n')
+        num_lines = new_code.count("\n")
         last_col_num_bytes = len(new_code.splitlines()[-1])
         # Update the source code with the new code
         self.source_code = (
-            self.source_code[:node.start_byte] +
-            new_code +
-            self.source_code[node.end_byte:]
+            self.source_code[: node.start_byte]
+            + new_code
+            + self.source_code[node.end_byte :]
         )
         # Perform the AST edit
         self.ast.edit(
@@ -179,19 +198,21 @@ class ASTEditor:
             old_end_point=node.end_point,
             new_end_point=(
                 node.start_point.row + num_lines,
-                node.start_point.column + last_col_num_bytes
-            )
+                node.start_point.column + last_col_num_bytes,
+            ),
         )
         # Re-parse the updated source code
-        self.ast = self.parser.parse(self.source_code.encode(),
-                                     old_tree=self.ast)
+        self.ast = self.parser.parse(self.source_code.encode(), old_tree=self.ast)
         # Check for parsing errors if required
         if self.ensure_parsable and self.ast.root_node.has_error:
-            raise TSParsingError('Parsing error while editing code')
+            raise TSParsingError("Parsing error while editing code")
 
-    def match_and_edit(self, query: str,
-                       groups_and_replacement: Dict[str, Union[str, Callable[[Node], str]]]) -> None:
-        '''
+    def match_and_edit(
+        self,
+        query: str,
+        groups_and_replacement: Dict[str, Union[str, Callable[[Node], str]]],
+    ) -> None:
+        """
         Searches the AST using a Tree-sitter query and applies code edits to matching nodes.
 
         For each match group, replaces the matched node's code with a provided string or the
@@ -204,7 +225,7 @@ class ASTEditor:
 
         Raises:
             TSParsingError: If an edit introduces parsing errors and `ensure_parsable` is `True`.
-        '''
+        """
         modified_nodes: Set[Node] = set()
         matches = self.ast.language.query(query).matches(self.ast.root_node)
         for idx in range(len(matches)):
@@ -218,13 +239,16 @@ class ASTEditor:
                             replacement = replacement(node)
                         self.edit_code(node, replacement)
                         modified_nodes.add(node)
-                        matches = self.ast.language.query(
-                            query).matches(self.ast.root_node)
+                        matches = self.ast.language.query(query).matches(
+                            self.ast.root_node
+                        )
                         break
 
 
-def requires_extra(extra: str, feature: str, module: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    '''
+def requires_extra(
+    extra: str, feature: str, module: str
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """
     Decorator that enforces the presence of an optional dependency (extra) before executing a function.
 
     If the required module is not installed, raises an `ExtraNotInstalled` error with instructions
@@ -240,7 +264,7 @@ def requires_extra(extra: str, feature: str, module: str) -> Callable[[Callable[
 
     Raises:
         ExtraNotInstalled: If the required module is not installed.
-    '''
+    """
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(func)
@@ -248,18 +272,22 @@ def requires_extra(extra: str, feature: str, module: str) -> Callable[[Callable[
             try:
                 importlib.import_module(module)
             except ImportError as e:
-                raise ExtraNotInstalled(f'{feature} requires the "{extra}" extra to be installed. '
-                                        f'Install with "pip install codablellm[{extra}]"') from e
+                raise ExtraNotInstalled(
+                    f'{feature} requires the "{extra}" extra to be installed. '
+                    f'Install with "pip install codablellm[{extra}]"'
+                ) from e
             return func(*args, **kwargs)
+
         return wrapper
+
     return decorator
 
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 def iter_queue(queue: Queue[T]) -> Generator[T, None, None]:
-    '''
+    """
     Iterates over all items in a queue until it is empty.
 
     Parameters:
@@ -267,13 +295,13 @@ def iter_queue(queue: Queue[T]) -> Generator[T, None, None]:
 
     Returns:
         A generator that yields each item from the queue.
-    '''
+    """
     while not queue.empty():
         yield queue.get()
 
 
 def get_checkpoint_file(prefix: str) -> Path:
-    '''
+    """
     Returns the checkpoint file path for the current process based on the given prefix.
 
     The checkpoint file is stored in the system temporary directory and named using
@@ -284,12 +312,12 @@ def get_checkpoint_file(prefix: str) -> Path:
 
     Returns:
         A `Path` object pointing to the checkpoint file.
-    '''
-    return Path(tempfile.gettempdir()) / f'{prefix}_{os.getpid()}.json'
+    """
+    return Path(tempfile.gettempdir()) / f"{prefix}_{os.getpid()}.json"
 
 
 def get_checkpoint_files(prefix: str) -> List[Path]:
-    '''
+    """
     Retrieves all checkpoint files matching the given prefix.
 
     Parameters:
@@ -297,12 +325,12 @@ def get_checkpoint_files(prefix: str) -> List[Path]:
 
     Returns:
         A list of `Path` objects for all matching checkpoint files.
-    '''
-    return list(Path(tempfile.gettempdir()).glob(f'{prefix}_*'))
+    """
+    return list(Path(tempfile.gettempdir()).glob(f"{prefix}_*"))
 
 
 def save_checkpoint_file(prefix: str, contents: Iterable[SupportsJSON]) -> None:
-    '''
+    """
     Saves checkpoint data to a file based on the given prefix.
 
     The contents are converted to JSON and written to a checkpoint file named
@@ -311,13 +339,13 @@ def save_checkpoint_file(prefix: str, contents: Iterable[SupportsJSON]) -> None:
     Parameters:
         prefix: The filename prefix for the checkpoint file.
         contents: An iterable of objects that support JSON serialization via `to_json()`.
-    '''
+    """
     checkpoint_file = get_checkpoint_file(prefix)
     checkpoint_file.write_text(json.dumps([c.to_json() for c in contents]))
 
 
 def load_checkpoint_data(prefix: str, delete_on_load: bool = False) -> List[JSONObject]:
-    '''
+    """
     Loads checkpoint data from all checkpoint files matching the given prefix.
 
     The function reads and aggregates JSON data from each checkpoint file and optionally
@@ -329,7 +357,7 @@ def load_checkpoint_data(prefix: str, delete_on_load: bool = False) -> List[JSON
 
     Returns:
         A list of JSON objects aggregated from all matching checkpoint files.
-    '''
+    """
     checkpoint_data: List[JSONObject] = []
     checkpoint_files = get_checkpoint_files(prefix)
     for checkpoint_file in checkpoint_files:
@@ -342,12 +370,12 @@ def load_checkpoint_data(prefix: str, delete_on_load: bool = False) -> List[JSON
 
 
 Command = Union[str, Sequence[str]]
-'''
+"""
 A CLI command.
-'''
+"""
 
-CommandErrorHandler = Literal['interactive', 'ignore', 'none']
-'''
+CommandErrorHandler = Literal["interactive", "ignore", "none"]
+"""
 Defines the strategies for handling errors encountered during the execution of a CLI command.
 
 Supported Error Handlers:
@@ -355,11 +383,11 @@ Supported Error Handlers:
     - **`none`**: An exception is raised immediately upon encountering the CLI error.
     - **`interactive`**: The user is prompted to resolve the error manually, allowing for
     interactive handling of the issue.
-'''
+"""
 
 
 def add_command_args(command: Command, *args: Any) -> Command:
-    '''
+    """
     Appends additional arguments to a CLI command.
 
     Parameters:
@@ -368,19 +396,21 @@ def add_command_args(command: Command, *args: Any) -> Command:
 
     Returns:
         The updated command with the appended arguments.
-    '''
+    """
     command = [command] if isinstance(command, str) else command
     return [*command, *args]
 
 
-def execute_command(command: Command,
-                    error_handler: CommandErrorHandler = 'none',
-                    task: Optional[str] = None,
-                    ctx: AbstractContextManager[Any] = nullcontext(),
-                    log_level: Literal['debug', 'info'] = 'info',
-                    print_errors: bool = True,
-                    cwd: Optional[PathLike] = None) -> str:
-    '''
+def execute_command(
+    command: Command,
+    error_handler: CommandErrorHandler = "none",
+    task: Optional[str] = None,
+    ctx: AbstractContextManager[Any] = nullcontext(),
+    log_level: Literal["debug", "info"] = "info",
+    print_errors: bool = True,
+    cwd: Optional[PathLike] = None,
+) -> str:
+    """
     Executes a CLI command with optional interactive error handling.
 
     Parameters:
@@ -397,11 +427,12 @@ def execute_command(command: Command,
 
     Raises:
         CalledProcessError: If the command fails and error_handler is 'none'.
-    '''
-    command_str = command if isinstance(
-        command, str) else ' '.join(str(c) for c in command)
-    log_task = logger.debug if log_level == 'debug' else logger.info
-    output = ''
+    """
+    command_str = (
+        command if isinstance(command, str) else " ".join(str(c) for c in command)
+    )
+    log_task = logger.debug if log_level == "debug" else logger.info
+    output = ""
 
     if not task:
         task = f'Executing: "{command_str}"'
@@ -413,7 +444,8 @@ def execute_command(command: Command,
         try:
             with ctx:
                 output = subprocess.check_output(
-                    command, text=True, cwd=cwd, stderr=subprocess.STDOUT)
+                    command, text=True, cwd=cwd, stderr=subprocess.STDOUT
+                )
             log_task(f'Successfully executed "{command_str}"')
             break  # Exit loop on success
 
@@ -421,31 +453,32 @@ def execute_command(command: Command,
             output = e.output
             logger.error(f'Command failed: "{command_str}"')
             if print_errors:
-                print(
-                    f'[red][b]Command failed: "{command_str}"[/b]\nOutput: {output}')
+                print(f'[red][b]Command failed: "{command_str}"[/b]\nOutput: {output}')
 
-            if error_handler == 'interactive':
+            if error_handler == "interactive":
                 result = Prompt.ask(
                     "A command error occurred. You can manually fix the issue and retry, ignore the error to continue, "
                     "abort the process, or edit the command. How would you like to proceed?",
-                    choices=['retry', 'ignore', 'abort', 'edit'],
+                    choices=["retry", "ignore", "abort", "edit"],
                     case_sensitive=False,
-                    default='retry'
+                    default="retry",
                 )
 
-                if result == 'retry':
+                if result == "retry":
                     continue
-                elif result == 'ignore':
+                elif result == "ignore":
                     break
-                elif result == 'abort':
+                elif result == "abort":
                     raise e
-                elif result == 'edit':
+                elif result == "edit":
                     edited_command = Prompt.ask(
-                        "Enter the new command to execute",
-                        default=f'"{command_str}"'
-                    ).strip('"\'')
-                    command = edited_command if isinstance(
-                        edited_command, list) else edited_command.split()
+                        "Enter the new command to execute", default=f'"{command_str}"'
+                    ).strip("\"'")
+                    command = (
+                        edited_command
+                        if isinstance(edited_command, list)
+                        else edited_command.split()
+                    )
                     continue
 
             # If not interactive, raise immediately
@@ -456,41 +489,44 @@ def execute_command(command: Command,
     return output
 
 
-REBASED_DIR_ENVIRON_KEY: Final[str] = 'CODABLELLM_REBASED_DIR'
-'''
+REBASED_DIR_ENVIRON_KEY: Final[str] = "CODABLELLM_REBASED_DIR"
+"""
 Environment variable key used to expose the rebased directory path to subprocesses.
 
 This is especially useful when running custom build or clean commands that need to
 reference the rebased project root dynamically (e.g., using shell expansion like `$CODABLELLM_REBASED_DIR`).
 
 Set automatically when using the `temp` generation mode.
-'''
+"""
 
 
 @contextmanager
 @overload
-def prepared_dir(path: PathLike,
-                 subpaths: None = None,
-                 rebased: bool = True,
-                 set_env_var: bool = True,
-                 ) -> Generator[Path, None, None]: ...
+def prepared_dir(
+    path: PathLike,
+    subpaths: None = None,
+    rebased: bool = True,
+    set_env_var: bool = True,
+) -> Generator[Path, None, None]: ...
 
 
 @contextmanager
 @overload
-def prepared_dir(path: PathLike,
-                 subpaths: Collection[PathLike] = {},
-                 rebased: bool = True,
-                 set_env_var: bool = True,
-                 ) -> Generator[Tuple[Path, Set[Path]], None, None]: ...
+def prepared_dir(
+    path: PathLike,
+    subpaths: Collection[PathLike] = {},
+    rebased: bool = True,
+    set_env_var: bool = True,
+) -> Generator[Tuple[Path, Set[Path]], None, None]: ...
 
 
 @contextmanager
-def prepared_dir(path: PathLike,
-                 subpaths: Optional[Collection[PathLike]] = None,
-                 rebased: bool = True,
-                 set_env_var: bool = True,
-                 ) -> Generator[Union[Path, Tuple[Path, Set[Path]]], None, None]:
+def prepared_dir(
+    path: PathLike,
+    subpaths: Optional[Collection[PathLike]] = None,
+    rebased: bool = True,
+    set_env_var: bool = True,
+) -> Generator[Union[Path, Tuple[Path, Set[Path]]], None, None]:
     # Normalize paths
     path = Path(path)
     if not subpaths:
@@ -499,8 +535,9 @@ def prepared_dir(path: PathLike,
     # Ensure all subpaths are relative to the path
     relative_subpaths = {s.relative_to(path) for s in normalized_subpaths}
     # Get the parent directory of path/rebased
-    parent_dir_ctx = tempfile.TemporaryDirectory() \
-        if rebased else nullcontext(path.parent)
+    parent_dir_ctx = (
+        tempfile.TemporaryDirectory() if rebased else nullcontext(path.parent)
+    )
     with parent_dir_ctx as parent_dir:
         parent_dir = Path(parent_dir)
         is_rebased_dir = parent_dir != path.parent
@@ -509,25 +546,25 @@ def prepared_dir(path: PathLike,
             rebased_path = Path(parent_dir) / Path(path).name
             shutil.copytree(path, rebased_path)
             path = rebased_path
-            logger.debug(
-                f'Rebased directory created under {repr(parent_dir.name)}'
-            )
+            logger.debug(f"Rebased directory created under {repr(parent_dir.name)}")
             # Rebase subpaths
             normalized_subpaths = {path / s for s in relative_subpaths}
             if any(normalized_subpaths):
-                logger.debug('Rebased subpaths: '
-                             ', '.join([str(Path(parent_dir.name) / s)
-                                       for s in relative_subpaths])
-                             )
+                logger.debug(
+                    "Rebased subpaths: "
+                    ", ".join(
+                        [str(Path(parent_dir.name) / s) for s in relative_subpaths]
+                    )
+                )
         try:
             if is_rebased_dir and set_env_var:
                 # Set rebased directory environment variable
                 parent_dir_str = str(parent_dir)
-                if os.environ.setdefault(REBASED_DIR_ENVIRON_KEY,
-                                         parent_dir_str) != parent_dir_str:
-                    logger.warning(
-                        f'{repr(REBASED_DIR_ENVIRON_KEY)} is already set'
-                    )
+                if (
+                    os.environ.setdefault(REBASED_DIR_ENVIRON_KEY, parent_dir_str)
+                    != parent_dir_str
+                ):
+                    logger.warning(f"{repr(REBASED_DIR_ENVIRON_KEY)} is already set")
             if normalized_subpaths:
                 # Yield rebased path and subpaths
                 yield path, normalized_subpaths
@@ -550,7 +587,15 @@ def dynamic_import(file: PathLike, symbol: str) -> Any:
         module = importlib.import_module(file.stem)
         return getattr(module, symbol)
     except ModuleNotFoundError as e:
-        raise ValueError(f'Cannot locate {repr(file.name)}') from e
+        raise ValueError(f"Cannot locate {repr(file.name)}") from e
     except AttributeError as e:
-        raise ValueError(
-            f'Cannot find {repr(symbol)} in {repr(file.name)}') from e
+        raise ValueError(f"Cannot find {repr(symbol)} in {repr(file.name)}") from e
+
+
+def benchmark_task(task: Task[Any, Any], run: TaskRun, state: State[Any]) -> None:
+    if state.is_failed() or state.is_crashed():
+        logger.error(f"Task {repr(task.name)} failed after {run.total_run_time}")
+    elif state.is_completed():
+        logger.info(
+            f"Task {repr(task.name)} completed successfully in {run.total_run_time}"
+        )
