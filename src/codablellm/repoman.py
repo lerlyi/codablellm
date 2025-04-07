@@ -1,12 +1,12 @@
-'''
+"""
 High-level functionality for creating code datasets from source code repositories.
-'''
+"""
 
-from contextlib import contextmanager, nullcontext
-from dataclasses import dataclass, field, replace
 import logging
 import shutil
-from typing import Collection, Generator, Literal, Optional, Sequence, Tuple, Union, no_type_check
+from contextlib import contextmanager, nullcontext
+from dataclasses import dataclass, field, replace
+from typing import Collection, Generator, Literal, Optional, Sequence, no_type_check
 
 from prefect import flow, task
 
@@ -14,16 +14,23 @@ from codablellm.core import utils
 from codablellm.core.dashboard import Progress
 from codablellm.core.extractor import ExtractConfig
 from codablellm.dataset import (
-    DatasetGenerationMode, DecompiledCodeDataset, DecompiledCodeDatasetConfig, SourceCodeDataset,
-    SourceCodeDatasetConfig
+    DatasetGenerationMode,
+    DecompiledCodeDataset,
+    DecompiledCodeDatasetConfig,
+    SourceCodeDataset,
+    SourceCodeDatasetConfig,
 )
 
-logger = logging.getLogger('codablellm')
+logger = logging.getLogger("codablellm")
 
 
-def build(command: utils.Command, error_handler: Optional[utils.CommandErrorHandler] = None,
-          show_progress: Optional[bool] = None, cwd: Optional[utils.PathLike] = None) -> None:
-    '''
+def build(
+    command: utils.Command,
+    error_handler: Optional[utils.CommandErrorHandler] = None,
+    show_progress: Optional[bool] = None,
+    cwd: Optional[utils.PathLike] = None,
+) -> None:
+    """
     Builds a local repository using a specified CLI command.
 
     Parameters:
@@ -31,57 +38,64 @@ def build(command: utils.Command, error_handler: Optional[utils.CommandErrorHand
         error_handler: Specifies how to handle errors during the build process.
         show_progress: Specifies whether to display a progress bar during the build process.
         cwd: The working directory to execute the build command in.
-    '''
-    task = 'Building repository...'
-    utils.execute_command(command, task=task,
-                          ctx=Progress(
-                              task) if show_progress else nullcontext(),
-                          **utils.resolve_kwargs(error_handler=error_handler,
-                                                 cwd=cwd))
+    """
+    task = "Building repository..."
+    utils.execute_command(
+        command,
+        task=task,
+        ctx=Progress(task) if show_progress else nullcontext(),
+        **utils.resolve_kwargs(error_handler=error_handler, cwd=cwd),
+    )
 
 
-def cleanup(command: utils.Command, error_handler: Optional[utils.CommandErrorHandler] = None,
-            show_progress: Optional[bool] = None, cwd: Optional[utils.PathLike] = None) -> None:
-    '''
+def cleanup(
+    command: utils.Command,
+    error_handler: Optional[utils.CommandErrorHandler] = None,
+    show_progress: Optional[bool] = None,
+    cwd: Optional[utils.PathLike] = None,
+) -> None:
+    """
     Cleans up build artifacts of a local repository using a specified CLI command.
 
     Parameters:
         command: The CLI command to execute for cleaning up the repository.
-        error_handler: Specifies how to handle errors during the cleanup process. 
+        error_handler: Specifies how to handle errors during the cleanup process.
         show_progress: Specifies whether to display a progress bar during the cleanup process.
         cwd: The working directory to execute the build command in.
-    '''
-    task = 'Cleaning up repository...'
-    utils.execute_command(command, task=task,
-                          ctx=Progress(
-                              task) if show_progress else nullcontext(),
-                          **utils.resolve_kwargs(error_handler=error_handler,
-                                                 cwd=cwd))
+    """
+    task = "Cleaning up repository..."
+    utils.execute_command(
+        command,
+        task=task,
+        ctx=Progress(task) if show_progress else nullcontext(),
+        **utils.resolve_kwargs(error_handler=error_handler, cwd=cwd),
+    )
 
 
 @dataclass(frozen=True)
 class ManageConfig:
-    '''
+    """
     Configuration settings for managing a built local repository.
-    '''
+    """
+
     cleanup_command: Optional[utils.Command] = None
-    '''
+    """
     An optional CLI command to clean up the build artifacts of the repository.
-    '''
-    build_error_handling: utils.CommandErrorHandler = 'interactive'
-    '''
+    """
+    build_error_handling: utils.CommandErrorHandler = "interactive"
+    """
     Specifies how to handle errors during the build process.
-    '''
-    cleanup_error_handling: utils.CommandErrorHandler = 'ignore'
-    '''
+    """
+    cleanup_error_handling: utils.CommandErrorHandler = "ignore"
+    """
     Specifies how to handle errors during the cleanup process, if `cleanup_command` is provided.
-    '''
+    """
     show_progress: Optional[bool] = None
-    '''
+    """
     Indicates whether to display a progress bar during both the build and cleanup processes. 
-    '''
-    run_from: Literal['cwd', 'repo'] = 'repo'
-    ''''
+    """
+    run_from: Literal["cwd", "repo"] = "repo"
+    """'
     Specifies the working directory from which to run build and clean commands.
 
     - `repo`: Use the root of the repository as the working directory. This may refer to the original
@@ -90,14 +104,17 @@ class ManageConfig:
 
     This option controls how relative paths within commands are resolved and can affect the behavior
     of tools that assume a specific project root.
-    '''
+    """
     extra_paths: Sequence[utils.PathLike] = field(default_factory=list)
 
 
 @contextmanager
-def manage(build_command: utils.Command, path: utils.PathLike,
-           config: ManageConfig = ManageConfig()) -> Generator[None, None, None]:
-    '''
+def manage(
+    build_command: utils.Command,
+    path: utils.PathLike,
+    config: ManageConfig = ManageConfig(),
+) -> Generator[None, None, None]:
+    """
     Builds a local repository and optionally cleans up the build artifacts using a context manager.
 
     Parameters:
@@ -107,38 +124,48 @@ def manage(build_command: utils.Command, path: utils.PathLike,
 
     Returns:
         A context manager that builds the repository upon entering and optionally cleans up build artifacts upon exiting, based on the provided configuration.
-    '''
+    """
     # Move extra files to repository
     for extra_path in config.extra_paths:
         shutil.copy(extra_path, path)
-    build(build_command, error_handler=config.build_error_handling,
-          cwd=path if config.run_from == 'repo' else None,
-          show_progress=config.show_progress)
+    build(
+        build_command,
+        error_handler=config.build_error_handling,
+        cwd=path if config.run_from == "repo" else None,
+        show_progress=config.show_progress,
+    )
     yield
     if config.cleanup_command:
-        cleanup(config.cleanup_command, error_handler=config.cleanup_error_handling,
-                cwd=path if config.run_from == 'repo' else None,
-                show_progress=config.show_progress)
+        cleanup(
+            config.cleanup_command,
+            error_handler=config.cleanup_error_handling,
+            cwd=path if config.run_from == "repo" else None,
+            show_progress=config.show_progress,
+        )
 
 
 @no_type_check
 @flow
-def create_source_dataset(path: utils.PathLike,
-                          config: SourceCodeDatasetConfig = SourceCodeDatasetConfig(
-                              log_generation_warning=False)
-                          ) -> SourceCodeDataset:
+def create_source_dataset(
+    path: utils.PathLike,
+    config: SourceCodeDatasetConfig = SourceCodeDatasetConfig(
+        log_generation_warning=False
+    ),
+) -> SourceCodeDataset:
     return SourceCodeDataset.from_repository(path, config=config)
 
 
 @no_type_check
 @flow
-def create_decompiled_dataset(path: utils.PathLike,
-                              bins: Collection[utils.PathLike],
-                              extract_config: ExtractConfig = ExtractConfig(),
-                              dataset_config: DecompiledCodeDatasetConfig = DecompiledCodeDatasetConfig()
-                              ) -> DecompiledCodeDataset:
-    return DecompiledCodeDataset.from_repository(path, bins, extract_config=extract_config,
-                                                 dataset_config=dataset_config)
+def create_decompiled_dataset(
+    path: utils.PathLike,
+    bins: Collection[utils.PathLike],
+    extract_config: ExtractConfig = ExtractConfig(),
+    dataset_config: DecompiledCodeDatasetConfig = DecompiledCodeDatasetConfig(),
+) -> DecompiledCodeDataset:
+    return DecompiledCodeDataset.from_repository(
+        path, bins, extract_config=extract_config, dataset_config=dataset_config
+    )
 
 
 @task
@@ -149,14 +176,14 @@ def compile_dataset_task(
     manage_config: ManageConfig = ManageConfig(),
     extract_config: ExtractConfig = ExtractConfig(),
     dataset_config: DecompiledCodeDatasetConfig = DecompiledCodeDatasetConfig(),
-    generation_mode: DatasetGenerationMode = 'temp',
+    generation_mode: DatasetGenerationMode = "temp",
 ) -> DecompiledCodeDataset:
-    '''
+    """
     Builds a local repository and creates a `DecompiledCodeDataset` by decompiling the specified binaries.
 
-    This function automates the process of building a repository, decompiling its binaries, 
-    and generating a dataset of decompiled functions mapped to their potential source functions. 
-    It supports flexible configuration for repository management, source code extraction, and 
+    This function automates the process of building a repository, decompiling its binaries,
+    and generating a dataset of decompiled functions mapped to their potential source functions.
+    It supports flexible configuration for repository management, source code extraction, and
     dataset generation.
 
     Example:
@@ -180,8 +207,8 @@ def compile_dataset_task(
                             )
             ```
 
-            The above example creates a decompiled code dataset from 
-            `path/to/my/repository`. It removes all comments from the extracted source 
+            The above example creates a decompiled code dataset from
+            `path/to/my/repository`. It removes all comments from the extracted source
             code functions using the specified transform (`remove_comments`), builds the repository
             with `make`, decompiles, the binaries `bin1.exe` and `bin2.exe`, strips symbols after
             decompilation, and finally cleans up the repository with `make clean`.
@@ -197,33 +224,33 @@ def compile_dataset_task(
 
     Returns:
         The generated dataset containing mappings of decompiled functions to their potential source code functions.
-    '''
+    """
     original_path = path
     original_bins = bins
     with utils.prepared_dir(
         path,
         subpaths=bins,
-        rebased=generation_mode == 'temp' or generation_mode == 'temp-append'
+        rebased=generation_mode == "temp" or generation_mode == "temp-append",
     ) as paths:
         path, bins = paths
         # Normalize binaries
         bins = [bins] if isinstance(bins, str) else bins
         # Build repository
         with manage(build_command, path, config=manage_config):
-            future = DecompiledCodeDataset.from_repository.submit(path, bins, extract_config=extract_config,
-                                                                  dataset_config=dataset_config)  # type: ignore
-            if generation_mode == 'temp-append':
+            future = DecompiledCodeDataset.from_repository.submit(
+                path, bins, extract_config=extract_config, dataset_config=dataset_config
+            )  # type: ignore
+            if generation_mode == "temp-append":
                 # Create a copy of the extract config to extract the path without a transform
-                no_transform_extract_config = replace(
-                    extract_config,
-                    transform=None
-                )
+                no_transform_extract_config = replace(extract_config, transform=None)
                 original_futures = compile_dataset_task.submit(
-                    original_path, original_bins, build_command,
+                    original_path,
+                    original_bins,
+                    build_command,
                     manage_config=manage_config,
                     extract_config=no_transform_extract_config,
                     dataset_config=dataset_config,
-                    generation_mode='path'
+                    generation_mode="path",
                 )
                 return DecompiledCodeDataset.create_aligned_dataset(
                     original_futures.result(), future.result()
@@ -232,12 +259,21 @@ def compile_dataset_task(
 
 
 @flow
-def compile_dataset(path: utils.PathLike, bins: Collection[utils.PathLike], build_command: utils.Command,
-                    manage_config: ManageConfig = ManageConfig(),
-                    extract_config: ExtractConfig = ExtractConfig(),
-                    dataset_config: DecompiledCodeDatasetConfig = DecompiledCodeDatasetConfig(),
-                    generation_mode: DatasetGenerationMode = 'temp',
-                    ) -> DecompiledCodeDataset:
-    return compile_dataset_task(path, bins, build_command, manage_config=manage_config,
-                                extract_config=extract_config, dataset_config=dataset_config,
-                                generation_mode=generation_mode)
+def compile_dataset(
+    path: utils.PathLike,
+    bins: Collection[utils.PathLike],
+    build_command: utils.Command,
+    manage_config: ManageConfig = ManageConfig(),
+    extract_config: ExtractConfig = ExtractConfig(),
+    dataset_config: DecompiledCodeDatasetConfig = DecompiledCodeDatasetConfig(),
+    generation_mode: DatasetGenerationMode = "temp",
+) -> DecompiledCodeDataset:
+    return compile_dataset_task(
+        path,
+        bins,
+        build_command,
+        manage_config=manage_config,
+        extract_config=extract_config,
+        dataset_config=dataset_config,
+        generation_mode=generation_mode,
+    )

@@ -4,17 +4,14 @@ Module containing functions for managing and registering source code extractors.
 Source code extractors are responsible for parsing and extracting function definitions from different programming languages.
 '''
 
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-import logging
 from pathlib import Path
-from typing import (
-    Any, Callable, Dict, Final, List, Literal, Mapping, NamedTuple, Optional, OrderedDict,
-    Sequence, Set, Type
-)
+from typing import (Any, Callable, Dict, Final, List, Literal, Mapping,
+                    NamedTuple, Optional, OrderedDict, Sequence, Set, Type)
 
 from prefect import flow, task
-from rich import print
 
 from codablellm.core.function import SourceFunction
 from codablellm.core.utils import DynamicSymbol, PathLike, dynamic_import

@@ -5,16 +5,16 @@ Support for the Ghidra decompiler.
 import json
 import logging
 import os
-from pathlib import Path
 import subprocess
+from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import Final, List, Optional, Sequence
 
 from codablellm.core import utils
 from codablellm.core.decompiler import Decompiler
-from codablellm.core.function import DecompiledFunction, DecompiledFunctionJSONObject
-from codablellm.core.utils import is_binary, PathLike
-
+from codablellm.core.function import (DecompiledFunction,
+                                      DecompiledFunctionJSONObject)
+from codablellm.core.utils import PathLike, is_binary
 
 logger = logging.getLogger('codablellm')
 

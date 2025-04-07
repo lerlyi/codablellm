@@ -7,8 +7,8 @@ import itertools
 from pathlib import Path
 from typing import Final, Optional, Sequence, Set
 
-from tree_sitter import Language, Parser
 import tree_sitter_c as tsc
+from tree_sitter import Language, Parser
 
 from codablellm.core.extractor import Extractor
 from codablellm.core.function import SourceFunction

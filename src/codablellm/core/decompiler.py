@@ -5,17 +5,17 @@ This module manages decompiler registration and configuration, allowing `codable
 to use different backends for binary decompilation.
 '''
 
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-import logging
 from pathlib import Path
 from typing import Any, List, Mapping, NamedTuple, Optional, Sequence, Type
 
 from prefect import flow, task
-from rich import print
 
 from codablellm.core.function import DecompiledFunction
-from codablellm.core.utils import DynamicSymbol, PathLike, dynamic_import, is_binary
+from codablellm.core.utils import (DynamicSymbol, PathLike, dynamic_import,
+                                   is_binary)
 
 logger = logging.getLogger('codablellm')
 
