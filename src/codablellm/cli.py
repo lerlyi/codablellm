@@ -305,8 +305,8 @@ RUN_FROM: Final[RunFrom] = Option(
     "of the repository, whether real or temp) or 'cwd' (your "
     "current shell directory). Useful for managing relative path behavior.",
 )
-SYMBOL_REMOVER: Final[SymbolRemover] = Option(
-    "strip",
+SYMBOL_REMOVER: Final[Optional[SymbolRemover]] = Option(
+    DEFAULT_DECOMPILED_CODE_DATASET_CONFIG.decompiler_config.symbol_remover,
     help="If a decompiled dataset is being created, strip the symbols "
     "after decompiling",
 )
@@ -350,7 +350,7 @@ def command(
     max_decompiler_workers: Optional[int] = MAX_DECOMPILER_WORKERS,
     max_extractor_workers: Optional[int] = MAX_EXTRACTOR_WORKERS,
     run_from: RunFrom = RUN_FROM,
-    symbol_remover: SymbolRemover = SYMBOL_REMOVER,
+    symbol_remover: Optional[SymbolRemover] = SYMBOL_REMOVER,
     transform: Optional[DynamicSymbol] = TRANSFORM,
     use_checkpoint: Optional[bool] = USE_CHECKPOINT,
     url: str = URL,

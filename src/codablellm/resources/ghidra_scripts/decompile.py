@@ -33,8 +33,9 @@ for function in function_iter:
     path = currentProgram.getExecutablePath()
 
     # Decompile the function
-    decompiled_results = \
-        decompiler.decompileFunction(function, 60, ConsoleTaskMonitor())
+    decompiled_results = decompiler.decompileFunction(
+        function, 60, ConsoleTaskMonitor()
+    )
     if decompiled_results.decompileCompleted():
         definition = decompiled_results.getDecompiledFunction().getC()
     else:
@@ -42,12 +43,16 @@ for function in function_iter:
         exit(1)
 
     # Get the assembly instructions
-    instruction_iter = \
-        currentProgram.getListing().getInstructions(function.getBody(), True)
+    instruction_iter = currentProgram.getListing().getInstructions(
+        function.getBody(), True
+    )
     assembly = "\n".join([str(instr) for instr in instruction_iter])
 
     # Get the architecture (processor name)
     architecture = str(currentProgram.getLanguage().getProcessor())
+
+    # Get the address of the function
+    entry_point = function.getEntryPoint().getOffset()
 
     # Create a dictionary for this function
     func_dict = {
@@ -55,7 +60,8 @@ for function in function_iter:
         "definition": definition,
         "name": name,
         "assembly": assembly,
-        "architecture": architecture
+        "architecture": architecture,
+        "address": entry_point,
     }
 
     # Add the function dictionary to the result list
@@ -65,4 +71,4 @@ for function in function_iter:
 with open(output_file, "w") as f:
     json.dump(result_list, f, indent=4)
 
-print('Decompiled functions saved to' + output_file)
+print("Decompiled functions saved to" + output_file)

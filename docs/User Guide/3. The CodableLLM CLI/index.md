@@ -8,12 +8,12 @@ If you've followed along with the previous sections, you'll find that the CLI mi
 
 Once installed, you can invoke the CLI with:
 
-```
+```bash
 codablellm <repo> <save_as> [bins...]
 ```
 
 For a full list of commands and options, run:
 
-```
+```bash
 codablellm --help
 ```

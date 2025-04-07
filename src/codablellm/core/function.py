@@ -483,4 +483,5 @@ class DecompiledFunction(Function):
             json_obj["definition"],
             json_obj["assembly"],
             json_obj["architecture"],
+            json_obj["address"],
         )
