@@ -6,6 +6,13 @@ import logging
 
 from rich.logging import RichHandler
 
+# Configure logger
+logging.basicConfig(
+    level=logging.INFO, format="%(message)s", datefmt="[%X]", handlers=[RichHandler()]
+)
+logger = logging.getLogger("rich")
+
+
 from codablellm.core import DecompileConfig, ExtractConfig, decompiler, extractor
 from codablellm.dataset import DecompiledCodeDatasetConfig, SourceCodeDatasetConfig
 from codablellm.repoman import (
@@ -28,9 +35,3 @@ __all__ = [
     "SourceCodeDatasetConfig",
     "DecompiledCodeDatasetConfig",
 ]
-
-# Configure logger
-logging.basicConfig(
-    level=logging.INFO, format="%(message)s", datefmt="[%X]", handlers=[RichHandler()]
-)
-logger = logging.getLogger("rich")

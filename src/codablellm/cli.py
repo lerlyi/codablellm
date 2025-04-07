@@ -95,11 +95,8 @@ def validate_dataset_format(path: Path) -> Path:
 # Miscellaneous argument/option callbacks
 
 
-def toggle_logging(enable: bool) -> None:
-    if enable and logger.level == logging.NOTSET:
-        logger.setLevel(logging.INFO)
-    elif logger.level != logging.DEBUG:
-        logging.disable()
+def toggle_verbose_logging(enable: bool) -> None:
+    logging.getLogger("prefect").setLevel(logging.INFO if enable else logging.WARNING)
 
 
 def toggle_debug_logging(enable: bool) -> None:
@@ -278,7 +275,7 @@ VERBOSE: Final[bool] = Option(
     False,
     "--verbose",
     "-v",
-    callback=toggle_logging,
+    callback=toggle_verbose_logging,
     help="Display verbose logging information.",
 )
 VERSION: Final[bool] = Option(
