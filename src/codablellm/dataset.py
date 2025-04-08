@@ -605,7 +605,7 @@ class DecompiledCodeDataset(Dataset, Mapping[str, MappedFunction]):
         return fn_map
 
     @staticmethod
-    @task(name="align_functions", on_completion=[utils.benchmark_task])
+    @task(name="align_function")
     def _map_decompiled_function(
         decompiled_function: DecompiledFunction,
         function_name_map: Dict[str, List[SourceFunction]],

@@ -7,7 +7,6 @@ to use different backends for binary decompilation.
 
 import logging
 import subprocess
-import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -46,9 +45,16 @@ class RegisteredDecompiler(NamedTuple):
     symbol: DynamicSymbol
 
 
-_decompiler: RegisteredDecompiler = RegisteredDecompiler(
-    "Ghidra", (Path(__file__).parent.parent / "decompilers" / "ghidra.py", "Ghidra")
-)
+BUILTIN_DECOMPILERS: Final[Mapping[str, RegisteredDecompiler]] = {
+    "Ghidra": RegisteredDecompiler(
+        "Ghidra", (Path(__file__).parent.parent / "decompilers" / "ghidra.py", "Ghidra")
+    ),
+    "Angr": RegisteredDecompiler(
+        "Angr", (Path(__file__).parent.parent / "decompilers" / "angr_decompiler.py", "Angr")
+    ),
+}
+
+_decompiler: RegisteredDecompiler = BUILTIN_DECOMPILERS["Ghidra"]
 
 
 def set(name: str, file: PathLike, class_name: str) -> None:
@@ -282,14 +288,17 @@ def decompile_task(
     logger.info(f"Submitting {get().name} decompile tasks...")
     if config.symbol_remover:
         futures = [
-            task(decompiler.decompile_stripped, on_failure=[benchmark_task]).submit(
+            task(decompiler.decompile_stripped, on_failure=[benchmark_task]).submit(  # type: ignore
                 bin, config.symbol_remover, return_state=True
             )
             for bin in bins
         ]
     else:
         futures = [
-            task(decompiler.decompile, on_failure=[benchmark_task]).submit(bin, return_state=True) for bin in bins
+            task(decompiler.decompile, on_failure=[benchmark_task]).submit(  # type: ignore
+                bin, return_state=True
+            )
+            for bin in bins
         ]
     results = [future.result(raise_on_failure=config.strict) for future in futures]
     functions: List[DecompiledFunction] = []
