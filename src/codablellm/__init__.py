@@ -2,17 +2,7 @@
 codablellm is a framework for creating and curating high-quality code datasets tailored for large language models
 """
 
-import logging
-
-from rich.logging import RichHandler
-
-# Configure logger
-logging.basicConfig(
-    level=logging.INFO, format="%(message)s", datefmt="[%X]", handlers=[RichHandler()]
-)
-logger = logging.getLogger("rich")
-
-
+import codablellm.logging
 from codablellm.core import DecompileConfig, ExtractConfig, decompiler, extractor
 from codablellm.dataset import DecompiledCodeDatasetConfig, SourceCodeDatasetConfig
 from codablellm.repoman import (
@@ -35,3 +25,6 @@ __all__ = [
     "SourceCodeDatasetConfig",
     "DecompiledCodeDatasetConfig",
 ]
+
+# Configure logger
+logger = codablellm.logging.setup_logger()

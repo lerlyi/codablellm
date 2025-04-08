@@ -6,6 +6,7 @@ import json
 import logging
 from enum import Enum
 from pathlib import Path
+import shlex
 from typing import Dict, Final, List, Optional, Tuple
 
 from click import BadParameter
@@ -23,9 +24,10 @@ from codablellm.dataset import (
     SourceCodeDatasetConfig,
 )
 from codablellm.decompilers.ghidra import Ghidra
+import codablellm.logging
 from codablellm.repoman import ManageConfig
 
-logger = logging.getLogger("codablellm")
+logger = logging.getLogger(__name__)
 
 app = Typer()
 
@@ -106,7 +108,8 @@ def toggle_verbose_logging(enable: bool) -> None:
 
 def toggle_debug_logging(enable: bool) -> None:
     if enable:
-        logger.setLevel(logging.DEBUG)
+        toggle_verbose_logging(True)
+        codablellm.logging.setup_logger(logging.DEBUG)
 
 
 def show_version(show: bool) -> None:
@@ -290,6 +293,17 @@ VERSION: Final[bool] = Option(
     callback=show_version,
     help="Shows the installed version of codablellm and exit.",
 )
+STRICT: Final[bool] = Option(
+    DEFAULT_SOURCE_CODE_DATASET_CONFIG.extract_config.strict
+    or DEFAULT_DECOMPILED_CODE_DATASET_CONFIG.decompiler_config.strict,
+    "--strict",
+    help="Crash if an extraction or decompilation fails.",
+)
+SYMBOL_REMOVER: Final[Optional[SymbolRemover]] = Option(
+    DEFAULT_DECOMPILED_CODE_DATASET_CONFIG.decompiler_config.symbol_remover,
+    help="If a decompiled dataset is being created, strip the symbols "
+    "after decompiling",
+)
 TRANSFORM: Final[Optional[DynamicSymbol]] = Option(
     DEFAULT_SOURCE_CODE_DATASET_CONFIG.extract_config.transform,
     "--transform",
@@ -299,16 +313,17 @@ TRANSFORM: Final[Optional[DynamicSymbol]] = Option(
     metavar="<FILE FUNCTION>",
     help="Transformation function to use when extracting source code functions.",
 )
+RECURSIVE: Final[bool] = Option(
+    DEFAULT_DECOMPILED_CODE_DATASET_CONFIG.decompiler_config.recursive,
+    "--recursive",
+    "-r",
+    help="Recursively search for binaries in the specified bins directories.",
+)
 RUN_FROM: Final[RunFrom] = Option(
     DEFAULT_MANAGE_CONFIG.run_from,
     help="Where to run build/clean commands from: 'repo' (the root "
     "of the repository, whether real or temp) or 'cwd' (your "
     "current shell directory). Useful for managing relative path behavior.",
-)
-SYMBOL_REMOVER: Final[Optional[SymbolRemover]] = Option(
-    DEFAULT_DECOMPILED_CODE_DATASET_CONFIG.decompiler_config.symbol_remover,
-    help="If a decompiled dataset is being created, strip the symbols "
-    "after decompiling",
 )
 USE_CHECKPOINT: Final[Optional[bool]] = Option(
     None,
@@ -349,7 +364,9 @@ def command(
     mapper: DynamicSymbol = MAPPER,
     max_decompiler_workers: Optional[int] = MAX_DECOMPILER_WORKERS,
     max_extractor_workers: Optional[int] = MAX_EXTRACTOR_WORKERS,
+    recursive: bool = RECURSIVE,
     run_from: RunFrom = RUN_FROM,
+    strict: bool = STRICT,
     symbol_remover: Optional[SymbolRemover] = SYMBOL_REMOVER,
     transform: Optional[DynamicSymbol] = TRANSFORM,
     use_checkpoint: Optional[bool] = USE_CHECKPOINT,
@@ -360,9 +377,10 @@ def command(
     """
     Creates a code dataset from a local repository.
     """
-    # Configure decompiler
-    file, symbol = decompiler
-    codablellm.decompiler.set(f"(CLI-Set) {symbol}", file, symbol)
+    if decompiler != codablellm.decompiler.get().symbol:
+        # Configure decompiler
+        file, symbol = decompiler
+        codablellm.decompiler.set(f"(CLI-Set) {symbol}", file, symbol)
     if extractors:
         # Configure function extractors
         operation, config_file = extractors
@@ -404,6 +422,7 @@ def command(
         exclude_subpaths=set(exclude_subpath) if exclude_subpath else set(),
         checkpoint=checkpoint,
         use_checkpoint=True,
+        strict=strict,
     )
     if build:
         logger.warning(
@@ -425,6 +444,8 @@ def command(
             decompiler_config=DecompileConfig(
                 max_workers=max_decompiler_workers,
                 symbol_remover=symbol_remover,  # type: ignore
+                recursive=recursive,
+                strict=strict,
             ),
             mapper=mapper_callable,
         )
@@ -434,7 +455,7 @@ def command(
             )
         else:
             manage_config = ManageConfig(
-                cleanup_command=cleanup,
+                cleanup_command=shlex.split(cleanup) if cleanup else None,
                 run_from=run_from,  # type: ignore
                 build_error_handling=build_error_handling,  # type: ignore
                 cleanup_error_handling=cleanup_error_handling,  # type: ignore
@@ -443,7 +464,7 @@ def command(
             dataset = codablellm.compile_dataset(
                 repo,
                 bins,
-                build,
+                shlex.split(build),
                 manage_config=manage_config,
                 extract_config=extract_config,
                 dataset_config=dataset_config,

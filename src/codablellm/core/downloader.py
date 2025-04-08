@@ -24,7 +24,7 @@ from rich.progress import (
 
 import codablellm.core.utils as utils
 
-logger = logging.getLogger("codablellm")
+logger = logging.getLogger(__name__)
 
 
 def decompress(

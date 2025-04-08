@@ -30,7 +30,7 @@ from prefect import task
 from codablellm.core import decompiler, extractor, utils
 from codablellm.core.function import DecompiledFunction, SourceFunction
 
-logger = logging.getLogger("codablellm")
+logger = logging.getLogger(__name__)
 
 
 class Dataset(ABC):

@@ -14,7 +14,7 @@ from tree_sitter import Language, Node, Parser
 
 from codablellm.core.utils import ASTEditor, JSONObject, SupportsJSON
 
-logger = logging.getLogger("codablellm")
+logger = logging.getLogger(__name__)
 
 
 class FunctionJSONObject(TypedDict):

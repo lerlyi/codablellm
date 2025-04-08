@@ -15,8 +15,8 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install Ghidra (adjust version as needed)
-ENV GHIDRA_VERSION=11.0.1
-ENV GHIDRA_RELEASE_DATE=20240130
+ENV GHIDRA_VERSION=11.1.1
+ENV GHIDRA_RELEASE_DATE=20240614
 RUN wget https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_${GHIDRA_VERSION}_build/ghidra_${GHIDRA_VERSION}_PUBLIC_${GHIDRA_RELEASE_DATE}.zip \
     && unzip ghidra_${GHIDRA_VERSION}_PUBLIC_${GHIDRA_RELEASE_DATE}.zip -d /opt \
     && rm ghidra_${GHIDRA_VERSION}_PUBLIC_${GHIDRA_RELEASE_DATE}.zip

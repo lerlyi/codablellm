@@ -45,7 +45,7 @@ from rich.progress import (
 from codablellm.core import utils
 from codablellm.exceptions import CodableLLMError
 
-logger = logging.getLogger("codablellm")
+logger = logging.getLogger(__name__)
 
 
 class Progress(BaseProgress):

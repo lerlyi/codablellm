@@ -15,7 +15,7 @@ from codablellm.core.decompiler import Decompiler
 from codablellm.core.function import DecompiledFunction, DecompiledFunctionJSONObject
 from codablellm.core.utils import PathLike, is_binary
 
-logger = logging.getLogger("codablellm")
+logger = logging.getLogger(__name__)
 
 # TODO: handle halt_baddata();
 
@@ -109,7 +109,7 @@ class Ghidra(Decompiler):
                         )
                     except json.JSONDecodeError as e:
                         raise ValueError(
-                            "Could not deserialize decompiled Ghidra " "functions"
+                            "Could not deserialize decompiled Ghidra functions"
                         ) from e
                     else:
                         return [

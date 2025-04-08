@@ -11,9 +11,23 @@ description = "A framework for creating and curating high-quality code datasets 
 readme = "README.md"
 requires-python = ">=3.8,<3.13" # Upper-bounded due to prefect (pendulum max support is 3.12) and maybe Angr
 classifiers = [
-  "Programming Language :: Python :: 3",
+  "Development Status :: 4 - Beta",                # Or "5 - Production/Stable" if applicable
+  "Intended Audience :: Developers",
+  "Topic :: Software Development :: Build Tools",
+  "Topic :: Software Development :: Code Generators",
+  "Topic :: Software Development :: Pre-processors",
+  "Topic :: Software Development :: Version Control",
+  "Topic :: Security",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
   "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12"
 ]
 dependencies = [
   "GitPython>=3.1.43",
@@ -61,6 +75,7 @@ codablellm = "codablellm.__main__:app"
 
 [project.urls]
 "Homepage" = "https://codablellm.readthedocs.io"
+documentation = "https://codablellm.readthedocs.io"
 "Bug Tracker" = "https://github.com/dmanuel64/codablellm/issues"
 "Documentation" = "https://codablellm.readthedocs.io"
 "GitHub" = "https://github.com/dmanuel64/codablellm"

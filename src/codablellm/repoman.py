@@ -21,7 +21,7 @@ from codablellm.dataset import (
     SourceCodeDatasetConfig,
 )
 
-logger = logging.getLogger("codablellm")
+logger = logging.getLogger(__name__)
 
 
 def build(

@@ -48,7 +48,7 @@ _EXTRACTORS: Final[OrderedDict[str, RegisteredExtractor]] = OrderedDict(
     }
 )
 
-logger = logging.getLogger("codablellm")
+logger = logging.getLogger(__name__)
 
 
 def get_registered() -> Sequence[RegisteredExtractor]:
@@ -221,6 +221,7 @@ class ExtractConfig:
     Keyword arguments to pass to the extractor's `__init__` method. The keys are language names.
     The values are dictionaries of keyword arguments. For example, `{'C': {'kwarg1': value1}}`.
     """
+    strict: bool = False
 
     def __post_init__(self) -> None:
         if self.max_workers and self.max_workers < 1:
@@ -273,10 +274,14 @@ def extract_directory_task(
     # Submit extraction tasks
     logger.info("Submitting extraction tasks...")
     futures = [
-        task(extractor.extract).submit(file, repo_path=path)
+        task(extractor.extract, on_failure=[benchmark_task]).submit(file, repo_path=path, return_state=True)
         for file, extractor in file_extractor_map.items()
     ]
-    functions = [function for future in futures for function in future.result()]
+    results = [future.result(raise_on_failure=config.strict) for future in futures]
+    functions: List[SourceFunction] = []
+    for result in results:
+        if isinstance(result, list):
+            functions.extend(result)
     if config.transform:
         # Apply transformation
         logger.info("Applying transformation...")

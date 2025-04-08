@@ -1,6 +1,5 @@
 # Various testing scripts
-library_test.py
-transform_test.py
+sandbox/
 
 # VSCode
 .vscode/

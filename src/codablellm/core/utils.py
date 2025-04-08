@@ -43,7 +43,7 @@ from tree_sitter import Node, Parser
 
 from codablellm.exceptions import ExtraNotInstalled, TSParsingError
 
-logger = logging.getLogger("codablellm")
+logger = logging.getLogger(__name__)
 
 PathLike = Union[Path, str]
 """
@@ -369,7 +369,7 @@ def load_checkpoint_data(prefix: str, delete_on_load: bool = False) -> List[JSON
     return checkpoint_data
 
 
-Command = Union[str, Sequence[str]]
+Command = List[str]
 """
 A CLI command.
 """
@@ -428,14 +428,13 @@ def execute_command(
     Raises:
         CalledProcessError: If the command fails and error_handler is 'none'.
     """
-    command_str = (
-        command if isinstance(command, str) else " ".join(str(c) for c in command)
-    )
+    if isinstance(command, str):
+        command = command.split()
     log_task = logger.debug if log_level == "debug" else logger.info
     output = ""
 
     if not task:
-        task = f'Executing: "{command_str}"'
+        task = f"Executing: {repr(command)}"
 
     while True:
         if task:
@@ -446,14 +445,14 @@ def execute_command(
                 output = subprocess.check_output(
                     command, text=True, cwd=cwd, stderr=subprocess.STDOUT
                 )
-            log_task(f'Successfully executed "{command_str}"')
+            log_task(f"Successfully executed {repr(command)}")
             break  # Exit loop on success
 
         except subprocess.CalledProcessError as e:
             output = e.output
-            logger.error(f'Command failed: "{command_str}"')
+            logger.error(f"Command failed: {repr(command)}")
             if print_errors:
-                print(f'[red][b]Command failed: "{command_str}"[/b]\nOutput: {output}')
+                print(f"[red][b]Command failed: {repr(command)}[/b]\nOutput: {output}")
 
             if error_handler == "interactive":
                 result = Prompt.ask(
@@ -471,6 +470,11 @@ def execute_command(
                 elif result == "abort":
                     raise e
                 elif result == "edit":
+                    command_str = (
+                        command
+                        if isinstance(command, str)
+                        else " ".join(str(c) for c in command)
+                    )
                     edited_command = Prompt.ask(
                         "Enter the new command to execute", default=f'"{command_str}"'
                     ).strip("\"'")
@@ -485,7 +489,7 @@ def execute_command(
             raise
 
     if output:
-        logger.debug(f'"{command_str}" output:\n"{output}"')
+        logger.debug(f'{repr(command)} output:\n"{output}"')
     return output
 
 

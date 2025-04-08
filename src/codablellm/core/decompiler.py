@@ -38,7 +38,7 @@ from codablellm.core.utils import (
 )
 from codablellm.languages.c import CExtractor
 
-logger = logging.getLogger("codablellm")
+logger = logging.getLogger(__name__)
 
 
 class RegisteredDecompiler(NamedTuple):
@@ -239,13 +239,15 @@ class DecompileConfig:
     Keyword arguments to pass to the decompiler's `__init__` method.
     """
     symbol_remover: Optional[SymbolRemovalStrategy] = None
+    recursive: bool = False
+    strict: bool = False
 
     def __post_init__(self) -> None:
         if self.max_workers and self.max_workers < 1:
             raise ValueError("Max workers must be a positive integer")
 
 
-@task(name="extract", on_completion=[benchmark_task])
+@task(name="decompile", on_completion=[benchmark_task])
 def decompile_task(
     *paths: PathLike, config: DecompileConfig
 ) -> List[DecompiledFunction]:
@@ -262,14 +264,16 @@ def decompile_task(
     """
     bins: List[Path] = []
     # Collect binary files
-    if isinstance(paths, (Path, str)):
-        paths = (paths,)
     for path in paths:
         path = Path(path)
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+        except FileExistsError:
+            # In case the path is not a directory, continue
+            pass
         # If a path is a directory, glob all child binaries
-        bins.extend(
-            [b for b in path.glob("*") if is_binary(b)] if path.is_dir() else [path]
-        )
+        glob = path.rglob if config.recursive else path.glob
+        bins.extend([b for b in glob("*") if is_binary(b)] if path.is_dir() else [path])
     if not any(bins):
         logger.warning("No binaries found to decompile")
     # Create decompiler
@@ -278,12 +282,20 @@ def decompile_task(
     logger.info(f"Submitting {get().name} decompile tasks...")
     if config.symbol_remover:
         futures = [
-            task(decompiler.decompile_stripped).submit(bin, config.symbol_remover)
+            task(decompiler.decompile_stripped, on_failure=[benchmark_task]).submit(
+                bin, config.symbol_remover, return_state=True
+            )
             for bin in bins
         ]
     else:
-        futures = [task(decompiler.decompile).submit(bin) for bin in bins]
-    functions = [function for future in futures for function in future.result()]
+        futures = [
+            task(decompiler.decompile, on_failure=[benchmark_task]).submit(bin, return_state=True) for bin in bins
+        ]
+    results = [future.result(raise_on_failure=config.strict) for future in futures]
+    functions: List[DecompiledFunction] = []
+    for result in results:
+        if isinstance(result, list):
+            functions.extend(result)
     logger.info(f"Successfully decompiled {len(functions)} functions")
     return functions
 
