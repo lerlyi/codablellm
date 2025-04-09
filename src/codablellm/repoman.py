@@ -145,7 +145,7 @@ def manage(
 
 
 @no_type_check
-@flow
+@utils.codablellm_flow()
 def create_source_dataset(
     path: utils.PathLike,
     config: SourceCodeDatasetConfig = SourceCodeDatasetConfig(
@@ -156,7 +156,7 @@ def create_source_dataset(
 
 
 @no_type_check
-@flow
+@utils.codablellm_flow()
 def create_decompiled_dataset(
     path: utils.PathLike,
     bins: Collection[utils.PathLike],
@@ -168,7 +168,7 @@ def create_decompiled_dataset(
     )
 
 
-@task(name="compile_dataset", on_completion=[utils.benchmark_task])
+@utils.codablellm_task(name="compile_dataset", on_completion=[utils.benchmark_task])
 def compile_dataset_task(
     path: utils.PathLike,
     bins: Collection[utils.PathLike],
@@ -258,7 +258,7 @@ def compile_dataset_task(
             return future.result()
 
 
-@flow
+@utils.codablellm_flow()
 def compile_dataset(
     path: utils.PathLike,
     bins: Collection[utils.PathLike],

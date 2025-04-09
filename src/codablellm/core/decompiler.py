@@ -23,15 +23,17 @@ from typing import (
     Type,
 )
 
-from prefect import flow, task
 from tree_sitter import Node
 
 from codablellm.core.function import DecompiledFunction
 from codablellm.core.utils import (
     ASTEditor,
+    BuiltinSymbols,
     DynamicSymbol,
     PathLike,
-    benchmark_task,
+    codablellm_flow,
+    codablellm_low_level_task,
+    codablellm_task,
     dynamic_import,
     is_binary,
 )
@@ -45,19 +47,20 @@ class RegisteredDecompiler(NamedTuple):
     symbol: DynamicSymbol
 
 
-BUILTIN_DECOMPILERS: Final[Mapping[str, RegisteredDecompiler]] = {
-    "Ghidra": RegisteredDecompiler(
-        "Ghidra", (Path(__file__).parent.parent / "decompilers" / "ghidra.py", "Ghidra")
-    ),
-    "Angr": RegisteredDecompiler(
-        "Angr", (Path(__file__).parent.parent / "decompilers" / "angr_decompiler.py", "Angr")
+BUILTIN_SYMBOLS: Final[BuiltinSymbols] = {
+    "Ghidra": (Path(__file__).parent.parent / "decompilers" / "ghidra.py", "Ghidra"),
+    "Angr": (
+        Path(__file__).parent.parent / "decompilers" / "angr_decompiler.py",
+        "Angr",
     ),
 }
 
-_decompiler: RegisteredDecompiler = BUILTIN_DECOMPILERS["Ghidra"]
+_decompiler: RegisteredDecompiler = RegisteredDecompiler(
+    "Ghidra", BUILTIN_SYMBOLS["Ghidra"]
+)
 
 
-def set(name: str, file: PathLike, class_name: str) -> None:
+def set(name: str, symbol: DynamicSymbol) -> None:
     """
     Sets the decompiler used by `codablellm`.
 
@@ -65,6 +68,7 @@ def set(name: str, file: PathLike, class_name: str) -> None:
         class_path:  The fully qualified class path (in the form `module.submodule.ClassName`) of the subclass of `Decompiler` to use.
     """
     global _decompiler
+    file, class_name = symbol
     old_decompiler = _decompiler
     _decompiler = RegisteredDecompiler(name, (Path(file), class_name))
     # Instantiate decompiler to ensure it can be properly imported
@@ -218,8 +222,7 @@ def create_decompiler(*args: Any, **kwargs: Any) -> Decompiler:
     Raises:
         DecompilerNotFound: If the specified decompiler cannot be imported or if the class cannot be found in the specified module.
     """
-    file, symbol = _decompiler.symbol
-    decompiler_class: Type[Decompiler] = dynamic_import(file, symbol)
+    decompiler_class: Type[Decompiler] = dynamic_import(_decompiler.symbol)
     return decompiler_class(*args, **kwargs)
 
 
@@ -253,8 +256,19 @@ class DecompileConfig:
             raise ValueError("Max workers must be a positive integer")
 
 
-@task(name="decompile", on_completion=[benchmark_task])
+@codablellm_low_level_task(name="decompile")
 def decompile_task(
+    decompiler: Decompiler,
+    path: PathLike,
+    symbol_remover: Optional[SymbolRemovalStrategy],
+) -> Sequence[DecompiledFunction]:
+    if symbol_remover:
+        return decompiler.decompile_stripped(path, symbol_remover)
+    return decompiler.decompile(path)
+
+
+@codablellm_task(name="decompile_bins")
+def decompile_bins_task(
     *paths: PathLike, config: DecompileConfig
 ) -> List[DecompiledFunction]:
     """
@@ -286,20 +300,10 @@ def decompile_task(
     decompiler = create_decompiler(*config.decompiler_args, **config.decompiler_kwargs)
     # Submit decompile tasks
     logger.info(f"Submitting {get().name} decompile tasks...")
-    if config.symbol_remover:
-        futures = [
-            task(decompiler.decompile_stripped, on_failure=[benchmark_task]).submit(  # type: ignore
-                bin, config.symbol_remover, return_state=True
-            )
-            for bin in bins
-        ]
-    else:
-        futures = [
-            task(decompiler.decompile, on_failure=[benchmark_task]).submit(  # type: ignore
-                bin, return_state=True
-            )
-            for bin in bins
-        ]
+    futures = [
+        decompile_task.submit(decompiler, bin, config.symbol_remover, return_state=True)
+        for bin in bins
+    ]
     results = [future.result(raise_on_failure=config.strict) for future in futures]
     functions: List[DecompiledFunction] = []
     for result in results:
@@ -309,6 +313,6 @@ def decompile_task(
     return functions
 
 
-@flow
+@codablellm_flow()
 def decompile(*paths: PathLike, config: DecompileConfig) -> List[DecompiledFunction]:
-    return decompile_task(*paths, config=config)
+    return decompile_bins_task(*paths, config=config)

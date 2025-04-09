@@ -1,5 +1,5 @@
 <!-- markdownlint-disable MD041 -->
-![Build Status](https://github.com/dmanuel64/codablellm/actions/workflows/test.yml/badge.svg?branch=main) <--- >
+![Build Status](https://github.com/dmanuel64/codablellm/actions/workflows/test.yml/badge.svg?branch=main)
 ![Python Version](https://img.shields.io/pypi/pyversions/codablellm)
 ![PyPI](https://img.shields.io/pypi/v/codablellm)
 ![Downloads](https://img.shields.io/pypi/dm/codablellm)

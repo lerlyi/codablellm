@@ -1,3 +1,4 @@
+import logging
 from typing import List, Sequence
 
 try:
@@ -7,6 +8,8 @@ except ModuleNotFoundError:
 from codablellm.core.decompiler import Decompiler
 from codablellm.core.function import DecompiledFunction
 from codablellm.core.utils import PathLike, requires_extra
+
+logger = logging.getLogger(__name__)
 
 
 def is_installed() -> bool:
@@ -34,19 +37,29 @@ class Angr(Decompiler):
             address = func_addr
 
             # Get assembly using Capstone
-            block = project.factory.block(func_addr)
-            assembly = block.capstone.pretty_print()
+            assembly = []
+            for block in function.blocks:
+                for insn in block.capstone.insns:
+                    assembly.append(f"{insn.mnemonic} {insn.op_str}".strip())
 
-            # Get "definition" via VEX IR (pseudo-C is not supported)
-            vex_ir = "\n".join(str(stmt) for stmt in block.vex.statements)
+            assembly_str = "\n".join(assembly)
 
+            # Decompile the main function
+            decompilation = project.analyses.Decompiler(function)
+            if not decompilation.codegen:
+                raise ValueError(f"Angr decompilation failed: {repr(name)}")
+            definition = decompilation.codegen.text
+            logger.debug(f"Successfully decompiled {repr(name)}")
             func_dict = {
-                "path": path,
-                "definition": vex_ir,
+                "path": str(path),
+                "definition": definition,
                 "name": name,
-                "assembly": assembly,
+                "assembly": assembly_str,
                 "architecture": architecture,
                 "address": address,
             }
             result_list.append(DecompiledFunction.from_decompiled_json(func_dict))
         return result_list
+
+    def get_stripped_function_name(self, address: int) -> str:
+        return f"sub_{address:X}"

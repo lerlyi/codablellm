@@ -28,6 +28,11 @@ RUN apt-get update && apt-get install -y \
 ENV JAVA_HOME="/usr/lib/jvm/zulu21"
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
 
+# Install Radare2
+ENV RADARE2_VERSION=5.9.8
+RUN curl -Ls https://github.com/radareorg/radare2/releases/download/${RADARE2_VERSION}/radare2-${RADARE2_VERSION}.tar.xz | tar xJv
+RUN radare2-5.9.8/sys/install.sh
+
 # Install Ghidra (adjust version as needed)
 # Starts hanging in versions >= 11.2
 ENV GHIDRA_VERSION=11.3.1
@@ -52,7 +57,7 @@ RUN python -m pip install --upgrade pip setuptools
 # Copy pyproject.toml and install deps (cached if unchanged)
 COPY pyproject.toml .
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install .[all] --no-build-isolation
+    pip install '.[all]' --no-build-isolation
 
 # Copy the source code (invalidates cache if you change code)
 COPY . .

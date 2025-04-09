@@ -5,9 +5,10 @@ The codablellm command line interface.
 import json
 import logging
 from enum import Enum
+import os
 from pathlib import Path
 import shlex
-from typing import Dict, Final, List, Optional, Tuple
+from typing import Dict, Final, List, Optional, Tuple, Union
 
 from click import BadParameter
 from rich import print
@@ -16,15 +17,19 @@ from typer import Argument, Exit, Option, Typer
 import codablellm
 from codablellm.core import decompiler, downloader
 from codablellm.core.decompiler import DecompileConfig
-from codablellm.core.extractor import ExtractConfig, Transform
-from codablellm.core.utils import DynamicSymbol, dynamic_import
+from codablellm.core.extractor import ExtractConfig
+from codablellm.core.utils import (
+    CODABLELLM_MAX_WORKERS_ENVIRON_KEY,
+    CODABLELLM_PARALLEL_TASKS_ENVIRON_KEY,
+    BuiltinSymbols,
+    DynamicSymbol,
+)
 from codablellm.dataset import (
     DecompiledCodeDatasetConfig,
-    Mapper,
     SourceCodeDatasetConfig,
 )
 from codablellm.decompilers.ghidra import Ghidra
-import codablellm.logging
+import codablellm.logging_config
 from codablellm.repoman import ManageConfig
 
 logger = logging.getLogger(__name__)
@@ -109,7 +114,7 @@ def toggle_verbose_logging(enable: bool) -> None:
 def toggle_debug_logging(enable: bool) -> None:
     if enable:
         toggle_verbose_logging(True)
-        codablellm.logging.setup_logger(logging.DEBUG)
+        codablellm.logging_config.setup_logger(logging.DEBUG)
 
 
 def show_version(show: bool) -> None:
@@ -121,6 +126,40 @@ def show_version(show: bool) -> None:
 def try_create_repo_dir(path: Path) -> Path:
     Path(path).mkdir(parents=True, exist_ok=True)
     return path
+
+
+# Argument/option parsers
+
+
+def parse_builtin_or_dynamic_symbol(
+    param_name: str, value: Union[str, DynamicSymbol], builtin_symbols: BuiltinSymbols
+) -> DynamicSymbol:
+    print(value)
+    raise Exit()
+    if not isinstance(value, str):
+        return value
+    args = shlex.split(value)
+    try:
+        file, symbol = args
+    except ValueError as e1:
+        try:
+            (symbol,) = args
+        except ValueError as e2:
+            raise BadParameter(f"requires 1 or 2 arguments.") from e1
+        else:
+            dynamic_symbol = builtin_symbols.get(symbol)
+            if not dynamic_symbol:
+                raise BadParameter(
+                    f"is not a builtin symbol ({'|'.join(builtin_symbols)})."
+                ) from e1
+            return dynamic_symbol
+    else:
+        file = Path(file)
+        if not file.exists():
+            raise BadParameter(f"{file} is does not exist.")
+        elif not file.is_file():
+            raise BadParameter(f"{file} is not a file.")
+        return (Path(file), symbol)
 
 
 # Arguments
@@ -186,11 +225,11 @@ DECOMPILE: Final[bool] = Option(
     "argument and add decompiled code to the dataset.",
 )
 DECOMPILER: Final[DynamicSymbol] = Option(
-    decompiler._decompiler.symbol,
+    codablellm.decompiler._decompiler.symbol,
     dir_okay=False,
     exists=True,
     help="Decompiler to use.",
-    metavar="<FILE CLASS>",
+    metavar=f"<FILE CLASS>",
 )
 DEBUG: Final[bool] = Option(
     False, "--debug", callback=toggle_debug_logging, hidden=True
@@ -262,22 +301,29 @@ CLEANUP_ERROR_HANDLING: Final[CommandErrorHandler] = Option(
     "prompting the user for manual intervention.",
 )
 MAPPER: Final[DynamicSymbol] = Option(
-    (Path(__file__).parent / "dataset.py", "DEFAULT_MAPPER"),
+    DEFAULT_DECOMPILED_CODE_DATASET_CONFIG.mapper,
     dir_okay=False,
     exists=True,
     metavar="<FILE FUNCTION>",
     help="Mapper to use for mapping decompiled functions to source code functions.",
 )
-MAX_DECOMPILER_WORKERS: Final[Optional[int]] = Option(
-    DEFAULT_DECOMPILED_CODE_DATASET_CONFIG.decompiler_config.max_workers,
+MAX_WORKERS: Final[Optional[int]] = Option(
+    None,
+    callback=lambda v: (
+        os.environ.update({CODABLELLM_MAX_WORKERS_ENVIRON_KEY: str(v)}) if v else None
+    ),
     min=1,
-    help="Maximum number of workers to use to decompile binaries in parallel.",
+    envvar=CODABLELLM_MAX_WORKERS_ENVIRON_KEY,
+    help="Maximum number of processes/threads for prefect tasks.",
 )
-MAX_EXTRACTOR_WORKERS: Final[Optional[int]] = Option(
-    DEFAULT_SOURCE_CODE_DATASET_CONFIG.extract_config.max_workers,
-    min=1,
-    help="Maximum number of workers to use to "
-    "extract source code functions in parallel.",
+PARALLEL: Final[bool] = Option(
+    False,
+    "--parallel / --concurrent",
+    callback=lambda v: os.environ.update(
+        {CODABLELLM_PARALLEL_TASKS_ENVIRON_KEY: str(v)}
+    ),
+    envvar=CODABLELLM_PARALLEL_TASKS_ENVIRON_KEY,
+    help="If CodableLLM should execute prefect tasks in parallel or concurrently",
 )
 VERBOSE: Final[bool] = Option(
     False,
@@ -362,8 +408,8 @@ def command(
     ghidra: Optional[Path] = GHIDRA,
     ghidra_script: Path = GHIDRA_SCRIPT,
     mapper: DynamicSymbol = MAPPER,
-    max_decompiler_workers: Optional[int] = MAX_DECOMPILER_WORKERS,
-    max_extractor_workers: Optional[int] = MAX_EXTRACTOR_WORKERS,
+    max_workers: Optional[int] = MAX_WORKERS,
+    parallel: bool = PARALLEL,
     recursive: bool = RECURSIVE,
     run_from: RunFrom = RUN_FROM,
     strict: bool = STRICT,
@@ -379,8 +425,7 @@ def command(
     """
     if decompiler != codablellm.decompiler.get().symbol:
         # Configure decompiler
-        file, symbol = decompiler
-        codablellm.decompiler.set(f"(CLI-Set) {symbol}", file, symbol)
+        codablellm.decompiler.set(f"(CLI-Set) {decompiler[1]}", decompiler)
     if extractors:
         # Configure function extractors
         operation, config_file = extractors
@@ -397,11 +442,11 @@ def command(
         if operation == ExtractorConfigOperation.SET:
             codablellm.extractor.set_registered(configured_extractors)
         else:
-            for language, (file, symbol) in configured_extractors.items():
+            for language, symbol in configured_extractors.items():
                 order = (
                     "last" if operation == ExtractorConfigOperation.APPEND else "first"
                 )
-                codablellm.extractor.register(language, file, symbol, order=order)
+                codablellm.extractor.register(language, symbol, order=order)
     if url:
         # Download remote repository
         if git:
@@ -409,15 +454,9 @@ def command(
         else:
             downloader.decompress(url, repo)
     # Create the extractor configuration
-    if transform:
-        file, symbol = transform
-        transform_callable: Optional[Transform] = dynamic_import(file, symbol)
-    else:
-        transform_callable = transform
     extract_config = ExtractConfig(
-        max_workers=max_extractor_workers,
         accurate_progress=accurate,
-        transform=transform_callable,
+        transform=transform,
         exclusive_subpaths=set(exclusive_subpath) if exclusive_subpath else set(),
         exclude_subpaths=set(exclude_subpath) if exclude_subpath else set(),
         checkpoint=checkpoint,
@@ -437,17 +476,14 @@ def command(
                 "Must specify at least one binary for decompiled code datasets.",
                 param_hint="bins",
             )
-        file, symbol = mapper
-        mapper_callable: Mapper = dynamic_import(file, symbol)
         dataset_config = DecompiledCodeDatasetConfig(
             extract_config=extract_config,
             decompiler_config=DecompileConfig(
-                max_workers=max_decompiler_workers,
                 symbol_remover=symbol_remover,  # type: ignore
                 recursive=recursive,
                 strict=strict,
             ),
-            mapper=mapper_callable,
+            mapper=mapper,
         )
         if not build:
             dataset = codablellm.create_decompiled_dataset(

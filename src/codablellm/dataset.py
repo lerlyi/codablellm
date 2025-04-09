@@ -278,7 +278,9 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
         return cls(annotated_functions)
 
     @classmethod
-    @task(name="create_source_dataset", on_completion=[utils.benchmark_task])
+    @utils.codablellm_task(
+        name="create_source_dataset", on_completion=[utils.benchmark_task]
+    )
     def from_repository(
         cls,
         path: utils.PathLike,
@@ -364,10 +366,12 @@ Callable type describing a mapping function that determines if a decompiled func
 corresponds to a given source function.
 """
 
-DEFAULT_MAPPER: Final[Mapper] = name_mapper
+DEFAULT_MAPPER: Final[utils.DynamicSymbol] = (Path(__file__), "name_mapper")
 """
 The default mapping function used to match decompiled functions to source functions.
 """
+
+BUILTIN_MAPPERS: Final[utils.BuiltinSymbols] = {"name_mapper": DEFAULT_MAPPER}
 
 
 @dataclass(frozen=True)
@@ -391,10 +395,13 @@ class DecompiledCodeDatasetConfig:
     """
     Configuration settings for decompiling binaries.
     """
-    mapper: Mapper = DEFAULT_MAPPER
+    mapper: utils.DynamicSymbol = DEFAULT_MAPPER
     """
     The mapping function used to determine if a decompiled function corresponds to a given source function.
     """
+
+    def get_mapper(self) -> Mapper:
+        return utils.dynamic_import(self.mapper)
 
 
 class MappedFunction(NamedTuple):
@@ -526,7 +533,7 @@ class DecompiledCodeDataset(Dataset, Mapping[str, MappedFunction]):
         )
 
     @classmethod
-    @task(name="create_decompiled_dataset", on_completion=[utils.benchmark_task])
+    @utils.codablellm_task(name="create_decompiled_dataset")
     def from_repository(
         cls,
         path: utils.PathLike,
@@ -582,7 +589,7 @@ class DecompiledCodeDataset(Dataset, Mapping[str, MappedFunction]):
             path, config=extract_config
         )
         future_bins = [
-            task(decompiler.decompile).submit(
+            decompiler.decompile_bins_task.submit(
                 bin, config=dataset_config.decompiler_config
             )
             for bin in bins
@@ -604,20 +611,31 @@ class DecompiledCodeDataset(Dataset, Mapping[str, MappedFunction]):
             ).append(source_function)
         return fn_map
 
+    # TODO: maybe make into prefect task? Just set max threads
     @staticmethod
-    @task(name="align_function")
     def _map_decompiled_function(
         decompiled_function: DecompiledFunction,
         function_name_map: Dict[str, List[SourceFunction]],
         config: DecompiledCodeDatasetConfig,
     ) -> Optional[MappedFunction]:
-        source_candidates = function_name_map.get(decompiled_function.name, [])
-        source_functions = [
-            s for s in source_candidates if config.mapper(decompiled_function, s)
-        ]
-        if not source_functions:
+        logger.debug(f"Aligning decompiled function: {repr(decompiled_function.name)}")
+        try:
+            source_candidates = function_name_map.get(decompiled_function.name, [])
+            source_functions = [
+                s
+                for s in source_candidates
+                if config.get_mapper()(decompiled_function, s)
+            ]
+            if not source_functions:
+                return None
+            return MappedFunction(
+                decompiled_function, SourceCodeDataset(source_functions)
+            )
+        except Exception as e:
+            logger.error(
+                f"Error aligning function {repr(decompiled_function.name)}: {repr(e)}"
+            )
             return None
-        return MappedFunction(decompiled_function, SourceCodeDataset(source_functions))
 
     @classmethod
     def map_functions(
@@ -641,15 +659,14 @@ class DecompiledCodeDataset(Dataset, Mapping[str, MappedFunction]):
         )
 
         logger.info("Mapping decompiled functions to source functions...")
-        mapped_futures = [
-            DecompiledCodeDataset._map_decompiled_function.submit(
+
+        # Gather results and filter None
+        mappings = [
+            DecompiledCodeDataset._map_decompiled_function(
                 func, function_name_map, config
             )
             for func in decompiled
         ]
-
-        # Gather results and filter None
-        mappings = [f.result() for f in mapped_futures]
         mappings = [m for m in mappings if m]
 
         logger.info(

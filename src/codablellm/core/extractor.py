@@ -31,7 +31,10 @@ from codablellm.core.utils import (
     DynamicSymbol,
     PathLike,
     benchmark_task,
+    codablellm_flow,
     dynamic_import,
+    codablellm_task,
+    codablellm_low_level_task,
 )
 
 
@@ -48,6 +51,8 @@ _EXTRACTORS: Final[OrderedDict[str, RegisteredExtractor]] = OrderedDict(
     }
 )
 
+BUILTIN_EXTRACTORS: Final[Mapping[str, RegisteredExtractor]] = _EXTRACTORS
+
 logger = logging.getLogger(__name__)
 
 
@@ -57,8 +62,7 @@ def get_registered() -> Sequence[RegisteredExtractor]:
 
 def register(
     language: str,
-    file: PathLike,
-    class_name: str,
+    symbol: DynamicSymbol,
     order: Optional[Literal["first", "last"]] = None,
 ) -> None:
     """
@@ -69,6 +73,7 @@ def register(
         class_path: The full import path to the extractor class.
         order: Optional order for insertion. If 'first', prepends the extractor; if 'last', appends it.
     """
+    file, class_name = symbol
     registered_extractor = RegisteredExtractor("C", (Path(file), class_name))
     if _EXTRACTORS.setdefault(language, registered_extractor) != registered_extractor:
         raise ValueError(f"{repr(language)} is already a registered extractor")
@@ -102,8 +107,8 @@ def set_registered(extractors: Mapping[str, DynamicSymbol]) -> None:
         extractors: A mapping from language names to extractor class paths.
     """
     unregister_all()
-    for language, (file, symbol) in extractors.items():
-        register(language, file, symbol)
+    for language, symbol in extractors.items():
+        register(language, symbol)
 
 
 class Extractor(ABC):
@@ -160,8 +165,7 @@ def create_extractor(language: str, *args: Any, **kwargs: Any) -> Extractor:
         ExtractorNotFound: If no extractor is registered for the specified language.
     """
     if language in _EXTRACTORS:
-        file, symbol = _EXTRACTORS[language].symbol
-        extractor_class: Type[Extractor] = dynamic_import(file, symbol)
+        extractor_class: Type[Extractor] = dynamic_import(_EXTRACTORS[language].symbol)
         return extractor_class(*args, **kwargs)
     raise ValueError(f'"{language}" is not a registered extractor')
 
@@ -187,7 +191,7 @@ class ExtractConfig:
     Whether to accurately track progress by counting extractable files in advance. This may take
     longer to start but provides more accurate progress tracking.
     """
-    transform: Optional[Transform] = None
+    transform: Optional[DynamicSymbol] = None
     """
     An optional transformation to apply to each source code function.
     """
@@ -234,8 +238,27 @@ class ExtractConfig:
         if self.checkpoint < 0:
             raise ValueError("Checkpoint must be a non-negative integer")
 
+    def get_transform(self) -> Optional[Transform]:
+        if self.transform:
+            return dynamic_import(self.transform)
 
-@task(name="extract", on_completion=[benchmark_task])
+
+@codablellm_low_level_task(name="extract_file")
+def extract_file_task(
+    extractor: Extractor, file: PathLike, repo_path: Optional[PathLike]
+) -> Sequence[SourceFunction]:
+    return extractor.extract(file, repo_path=repo_path)
+
+
+@codablellm_low_level_task(name="apply_transform")
+def apply_transform_task(
+    transform: DynamicSymbol, source: SourceFunction
+) -> SourceFunction:
+    transform_func: Transform = dynamic_import(transform)
+    return transform_func(source)
+
+
+@codablellm_task(name="extract_directory")
 def extract_directory_task(
     path: PathLike, config: ExtractConfig = ExtractConfig()
 ) -> List[SourceFunction]:
@@ -274,7 +297,7 @@ def extract_directory_task(
     # Submit extraction tasks
     logger.info("Submitting extraction tasks...")
     futures = [
-        task(extractor.extract, on_failure=[benchmark_task]).submit(file, repo_path=path, return_state=True)
+        extract_file_task.submit(extractor, file, repo_path=path)
         for file, extractor in file_extractor_map.items()
     ]
     results = [future.result(raise_on_failure=config.strict) for future in futures]
@@ -282,15 +305,16 @@ def extract_directory_task(
     for result in results:
         if isinstance(result, list):
             functions.extend(result)
-    if config.transform:
+    transform = config.get_transform()
+    if transform:
         # Apply transformation
         logger.info("Applying transformation...")
-        functions = task(config.transform).map(functions).result()
+        functions = apply_transform_task.map(functions).result()
     logger.info(f"Successfully extracted {len(functions)} functions")
     return functions
 
 
-@flow
+@codablellm_flow()
 def extract(
     *paths: PathLike, config: ExtractConfig = ExtractConfig()
 ) -> List[SourceFunction]:

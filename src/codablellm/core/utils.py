@@ -11,7 +11,7 @@ import subprocess
 import sys
 import tempfile
 from contextlib import AbstractContextManager, contextmanager, nullcontext
-from functools import wraps
+from functools import partial, wraps
 from pathlib import Path
 from queue import Queue
 from typing import (
@@ -24,7 +24,9 @@ from typing import (
     Iterable,
     List,
     Literal,
+    Mapping,
     Optional,
+    ParamSpec,
     Protocol,
     Sequence,
     Set,
@@ -35,8 +37,10 @@ from typing import (
     overload,
 )
 
-from prefect import State, Task
+from prefect import Flow, State, Task, flow, task
 from prefect.client.schemas.objects import TaskRun
+from prefect.task_runners import ThreadPoolTaskRunner
+from prefect_dask.task_runners import DaskTaskRunner
 from rich import print
 from rich.prompt import Prompt
 from tree_sitter import Node, Parser
@@ -583,7 +587,8 @@ def prepared_dir(
 DynamicSymbol = Tuple[Path, str]
 
 
-def dynamic_import(file: PathLike, symbol: str) -> Any:
+def dynamic_import(dynamic_symbol: DynamicSymbol) -> Any:
+    file, symbol = dynamic_symbol
     file = Path(file)
     # Add parent directory to sys.path to allow for dynamic imports of extractors and mappers
     sys.path.insert(0, str(file.parent))
@@ -596,10 +601,61 @@ def dynamic_import(file: PathLike, symbol: str) -> Any:
         raise ValueError(f"Cannot find {repr(symbol)} in {repr(file.name)}") from e
 
 
-def benchmark_task(task: Task[Any, Any], run: TaskRun, state: State[Any]) -> None:
+BuiltinSymbols = Mapping[str, DynamicSymbol]
+
+
+def benchmark_task(
+    task: Task[Any, Any],
+    run: TaskRun,
+    state: State[Any],
+    log_as: Literal["info", "debug"] = "info",
+) -> None:
     if state.is_failed() or state.is_crashed():
         logger.error(f"Task {repr(task.name)} failed after {run.total_run_time}")
     elif state.is_completed():
-        logger.info(
+        log_level = logger.info if log_as == "info" else logger.debug
+        log_level(
             f"Task {repr(task.name)} completed successfully in {run.total_run_time}"
         )
+
+
+R = TypeVar("R")  # The return type of the user's function
+P = ParamSpec("P")  # The parameters of the flow
+
+CODABLELLM_PARALLEL_TASKS_ENVIRON_KEY: Final[str] = "CODABLELLM_PARALLEL_TASKS"
+CODABLELLM_MAX_WORKERS_ENVIRON_KEY: Final[str] = "CODABLELLM_MAX_WORKERS"
+
+
+def codablellm_flow() -> Callable[[Callable[P, R]], Flow[P, R]]:
+    def decorator(func: Callable[P, R]) -> Flow[P, R]:
+        @wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> R:
+            parallel_task_runner = (
+                os.environ.get(CODABLELLM_PARALLEL_TASKS_ENVIRON_KEY, "false").lower()
+                == "true"
+            )
+            max_tasks = int(os.environ.get(CODABLELLM_MAX_WORKERS_ENVIRON_KEY, "0"))
+            if max_tasks < 1:
+                max_tasks = None
+            if parallel_task_runner:
+                cluster_kwargs = {"n_workers": max_tasks} if max_tasks else {}
+                task_runner = DaskTaskRunner(cluster_kwargs=cluster_kwargs)
+            else:
+                task_runner = ThreadPoolTaskRunner(max_workers=max_tasks)
+
+            # Dynamically apply @flow at runtime
+            dynamic_flow = flow(task_runner=task_runner)(func)  # type: ignore
+            return dynamic_flow(*args, **kwargs)
+
+        return wrapper  # type: ignore
+
+    return decorator
+
+
+codablellm_task = partial(
+    task, on_completion=[benchmark_task], on_failure=[benchmark_task]
+)
+codablellm_low_level_task = partial(
+    codablellm_task,
+    on_completion=[lambda t, r, s: benchmark_task(t, r, s, log_as="debug")],
+)

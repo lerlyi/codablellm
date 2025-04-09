@@ -10,6 +10,8 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import Final, List, Optional, Sequence
 
+import psutil
+
 from codablellm.core import utils
 from codablellm.core.decompiler import Decompiler
 from codablellm.core.function import DecompiledFunction, DecompiledFunctionJSONObject
@@ -117,6 +119,7 @@ class Ghidra(Decompiler):
                             for j in json_objects
                         ]
                 finally:
+                    Ghidra.reap_zombies(os.getpid())
                     output_path.unlink(missing_ok=True)
 
     def get_stripped_function_name(self, address: int) -> str:
@@ -163,3 +166,15 @@ class Ghidra(Decompiler):
             The path to Ghidra's `analyzeHeadless` command as a `Path` object, or `None` if the environment variable is not set.
         """
         return Ghidra._decompile_script
+
+    @staticmethod
+    def reap_zombies(pid: int):
+        for proc in psutil.process_iter(["pid", "ppid", "status", "name"]):
+            if proc.info["status"] == psutil.STATUS_ZOMBIE and proc.info["ppid"] == pid:
+                try:
+                    os.waitpid(proc.info["pid"], 0)
+                    logger.debug(f"Reaped PID {proc.info['pid']} ({proc.info['name']})")
+                except ChildProcessError:
+                    pass
+                except Exception as e:
+                    logger.error(f"Error while reaping PID {proc.info['pid']}: {e}")

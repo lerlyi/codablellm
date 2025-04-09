@@ -1,3 +1,7 @@
 from codablellm.cli import app
 
-app()
+def main():
+    app()
+
+if __name__ == "__main__":
+    main()

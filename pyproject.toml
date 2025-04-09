@@ -33,7 +33,7 @@ dependencies = [
   "GitPython>=3.1.43",
   "jinja2>=3.1.6",
   "pandas>=2.2.3",
-  "prefect>=3.2.15",
+  "prefect[dask]>=3.2.15",
   "requests>=2.32.3",
   "tree-sitter>=0.23.2",
   "tree-sitter-c==0.23.4",
@@ -43,7 +43,10 @@ dependencies = [
 [project.optional-dependencies]
 # Other decompilers
 "angr" = [
-  "angr>=9.2.148"
+  "angr>=9.2.148",
+]
+"radare2" = [
+  "r2pipe>=1.9.4",
 ]
 # Different dataset formats
 "excel" = [
@@ -61,6 +64,7 @@ dependencies = [
   "tabulate>=0.9.0",
   "lxml>=5.3.0",
   "angr>=9.2.148",
+  "r2pipe>=1.9.4"
 ]
 # Development dependencies
 "dev" = [
@@ -76,7 +80,7 @@ dependencies = [
 ]
 
 [project.scripts]
-codablellm = "codablellm.__main__:app"
+codablellm = "codablellm.__main__:main"
 
 [project.urls]
 "Homepage" = "https://codablellm.readthedocs.io"
