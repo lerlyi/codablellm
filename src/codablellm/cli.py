@@ -15,7 +15,7 @@ from rich import print
 from typer import Argument, Exit, Option, Typer
 
 import codablellm
-from codablellm.core import decompiler, downloader
+from codablellm.core import downloader
 from codablellm.core.decompiler import DecompileConfig
 from codablellm.core.extractor import ExtractConfig
 from codablellm.core.utils import (
