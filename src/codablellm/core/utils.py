@@ -277,8 +277,9 @@ def requires_extra(
                 importlib.import_module(module)
             except ImportError as e:
                 raise ExtraNotInstalled(
+                    extra,
                     f'{feature} requires the "{extra}" extra to be installed. '
-                    f'Install with "pip install codablellm[{extra}]"'
+                    f'Install with "pip install codablellm[{extra}]"',
                 ) from e
             return func(*args, **kwargs)
 
@@ -596,9 +597,13 @@ def dynamic_import(dynamic_symbol: DynamicSymbol) -> Any:
         module = importlib.import_module(file.stem)
         return getattr(module, symbol)
     except ModuleNotFoundError as e:
-        raise ValueError(f"Cannot locate {repr(file.name)}") from e
+        if e.name == file.stem:
+            raise ValueError(f"Cannot locate {repr(file.name)}") from e
+        raise
     except AttributeError as e:
-        raise ValueError(f"Cannot find {repr(symbol)} in {repr(file.name)}") from e
+        if e.name == symbol:
+            raise ValueError(f"Cannot find {repr(symbol)} in {repr(file.name)}") from e
+        raise
 
 
 BuiltinSymbols = Mapping[str, DynamicSymbol]
@@ -641,6 +646,8 @@ def codablellm_flow() -> Callable[[Callable[P, R]], Flow[P, R]]:
                 cluster_kwargs = {"n_workers": max_tasks} if max_tasks else {}
                 task_runner = DaskTaskRunner(cluster_kwargs=cluster_kwargs)
             else:
+                if max_tasks:
+                    max_tasks += 1
                 task_runner = ThreadPoolTaskRunner(max_workers=max_tasks)
 
             # Dynamically apply @flow at runtime

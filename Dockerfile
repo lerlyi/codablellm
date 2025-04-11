@@ -11,7 +11,7 @@ WORKDIR /app
 # Install dependencies
 USER root
 RUN apt-get update && apt-get install -y \
-    wget unzip sudo git build-essential gcc g++ make procps tini \
+    wget unzip sudo git build-essential gcc g++ make procps tini cargo rustc \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install OpenJDK 21 from Azul Zulu
@@ -34,7 +34,6 @@ RUN curl -Ls https://github.com/radareorg/radare2/releases/download/${RADARE2_VE
 RUN radare2-5.9.8/sys/install.sh
 
 # Install Ghidra (adjust version as needed)
-# Starts hanging in versions >= 11.2
 ENV GHIDRA_VERSION=11.3.1
 ENV GHIDRA_RELEASE_DATE=20250219
 RUN wget https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_${GHIDRA_VERSION}_build/ghidra_${GHIDRA_VERSION}_PUBLIC_${GHIDRA_RELEASE_DATE}.zip \

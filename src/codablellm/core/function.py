@@ -258,12 +258,12 @@ class SourceFunction(Function):
             class_name: The class name to include in the UID if the function is a method.
 
         Returns:
-            A UID string in the format: `<relative_path_or_filename>::<class_name>.<function_name>` if `class_name` is provided, otherwise `<relative_path_or_filename>::<function_name>`.
+            A UID string in the format: `<relative_path_or_filename>::<class_name>::<function_name>` if `class_name` is provided, otherwise `<relative_path_or_filename>::<function_name>`.
         """
         uid = Function.create_uid(file_path, name, repo_path=repo_path)
         if class_name:
             scope, function = uid.rsplit("::", maxsplit=1)
-            uid = f"{scope}::{class_name}.{function}"
+            uid = f"{scope}::{class_name}::{function}"
         return uid
 
     @staticmethod
@@ -277,7 +277,7 @@ class SourceFunction(Function):
         Returns:
             The function name.
         """
-        return Function.get_function_name(uid).split(".")[-1]
+        return Function.get_function_name(uid).rsplit("::", maxsplit=1)[-1]
 
     @classmethod
     def from_json(cls, json_obj: SourceFunctionJSONObject) -> "SourceFunction":

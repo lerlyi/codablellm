@@ -74,4 +74,4 @@ class CExtractor(Extractor):
         return functions
 
     def get_extractable_files(self, path: PathLike) -> Set[Path]:
-        return rglob_file_extensions(path, [".c", ".h"])
+        return rglob_file_extensions(path, [".c"])

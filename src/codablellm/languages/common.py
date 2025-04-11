@@ -1,3 +1,4 @@
+from abc import abstractmethod
 import itertools
 from pathlib import Path
 from typing import List, Optional, Sequence, Set
@@ -11,10 +12,8 @@ from codablellm.core.utils import PathLike
 
 class TreeSitterExtractor(Extractor):
 
-    def __init__(self, name: str, language: Language, query: str) -> None:
+    def __init__(self, name: str, query: str) -> None:
         self.name = name
-        self._language = language
-        self._parser = Parser(language)
         self._query = query
 
     def extract(
@@ -24,8 +23,9 @@ class TreeSitterExtractor(Extractor):
         file_path = Path(file_path)
         if repo_path is not None:
             repo_path = Path(repo_path)
-        ast = self._parser.parse(file_path.read_bytes())
-        for _, group in self._language.query(self._query).matches(ast.root_node):
+        language = self.get_language()
+        ast = Parser(language).parse(file_path.read_bytes())
+        for _, group in language.query(self._query).matches(ast.root_node):
             (function_definition,) = group["function.definition"]
             (function_name,) = group["function.name"]
             (class_name,) = group.get("class.name", [None])
@@ -52,6 +52,10 @@ class TreeSitterExtractor(Extractor):
                 )
             )
         return functions
+
+    @abstractmethod
+    def get_language(self) -> Language:
+        pass
 
 
 def rglob_file_extensions(path: PathLike, extensions: List[str]) -> Set[Path]:

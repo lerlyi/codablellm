@@ -24,17 +24,14 @@ from typing import (
     Type,
 )
 
-from prefect import flow, task
-
 from codablellm.core.function import SourceFunction
 from codablellm.core.utils import (
     DynamicSymbol,
     PathLike,
-    benchmark_task,
     codablellm_flow,
-    dynamic_import,
-    codablellm_task,
     codablellm_low_level_task,
+    codablellm_task,
+    dynamic_import,
 )
 
 
@@ -47,7 +44,40 @@ _EXTRACTORS: Final[OrderedDict[str, RegisteredExtractor]] = OrderedDict(
     {
         "C": RegisteredExtractor(
             "C", (Path(__file__).parent.parent / "languages" / "c.py", "CExtractor")
-        )
+        ),
+        "Rust": RegisteredExtractor(
+            "Rust",
+            (Path(__file__).parent.parent / "languages" / "rust.py", "RustExtractor"),
+        ),
+        "JavaScript": RegisteredExtractor(
+            "JavaScript",
+            (
+                Path(__file__).parent.parent / "languages" / "javascript.py",
+                "JavaScriptExtractor",
+            ),
+        ),
+        "Python": RegisteredExtractor(
+            "Python",
+            (
+                Path(__file__).parent.parent / "languages" / "python_language.py",
+                "PythonExtractor",
+            ),
+        ),
+        "C++": RegisteredExtractor(
+            "C++",
+            (Path(__file__).parent.parent / "languages" / "cpp.py", "CPPExtractor"),
+        ),
+        "Java": RegisteredExtractor(
+            "Java",
+            (Path(__file__).parent.parent / "languages" / "java.py", "JavaExtractor"),
+        ),
+        "TypeScript": RegisteredExtractor(
+            "TypeScript",
+            (
+                Path(__file__).parent.parent / "languages" / "typescript.py",
+                "TypeScriptExtractor",
+            ),
+        ),
     }
 )
 
@@ -147,6 +177,9 @@ class Extractor(ABC):
             A sequence of `Path` objects representing extractable source files.
         """
         pass
+
+    def is_installed(self) -> bool:
+        return True
 
 
 def create_extractor(language: str, *args: Any, **kwargs: Any) -> Extractor:
@@ -288,10 +321,17 @@ def extract_directory_task(
         # Locate extractable files
         files = extractor.get_extractable_files(path)
         if not any(files):
-            logger.debug(f"No {repr(language)} files were located")
-        for file in files:
-            if file_extractor_map.setdefault(file, extractor) != extractor:
-                logger.info(f"Extractor was already specified for {file.name}")
+            logger.debug(f"No {language} files were located")
+        elif not extractor.is_installed():
+            logger.warning(
+                f"{len(files)} {language} files were located, but the built-in {language} "
+                "extractor is not installed. You can install support for all languages with "
+                "'pip install codablellm[langs]', or you can install this extra individually."
+            )
+        else:
+            for file in files:
+                if file_extractor_map.setdefault(file, extractor) != extractor:
+                    logger.info(f"Extractor was already specified for {file.name}")
     if not any(file_extractor_map):
         logger.warning("No source code files found to extract")
     # Submit extraction tasks

@@ -2,6 +2,7 @@
 High-level functionality for creating code datasets from source code repositories.
 """
 
+from functools import partial
 import logging
 import shutil
 from contextlib import contextmanager, nullcontext

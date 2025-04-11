@@ -31,3 +31,7 @@ class ExtraNotInstalled(CodableLLMError):
     """
     An extra is not installed to perform an optional feature.
     """
+
+    def __init__(self, extra: str, *args: object) -> None:
+        super().__init__(*args)
+        self.extra = extra

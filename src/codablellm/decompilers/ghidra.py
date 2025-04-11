@@ -20,7 +20,7 @@ from codablellm.core.utils import PathLike, is_binary
 logger = logging.getLogger(__name__)
 
 # TODO: handle halt_baddata();
-
+# TODO: Ghidra Bridge instead of running subprocess? https://github.com/justfoxing/ghidra_bridge
 
 class Ghidra(Decompiler):
     """

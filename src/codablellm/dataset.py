@@ -23,12 +23,14 @@ from typing import (
     TypeVar,
     Union,
 )
+from typing_extensions import deprecated
 
 from pandas import DataFrame
 from prefect import task
 
 from codablellm.core import decompiler, extractor, utils
 from codablellm.core.function import DecompiledFunction, SourceFunction
+from codablellm.core.mapper import DEFAULT_MAPPER, Mapper
 
 logger = logging.getLogger(__name__)
 
@@ -344,36 +346,6 @@ class SourceCodeDataset(Dataset, Mapping[str, SourceFunction]):
             return cls(function for function in futures.result())
 
 
-def name_mapper(function: DecompiledFunction, uid: Union[SourceFunction, str]) -> bool:
-    """
-    Maps a decompiled function to a source function by comparing their function names.
-
-    Parameters:
-        function: The decompiled function to map.
-        uid: The source function UID or a `SourceFunction` object to map against.
-
-    Returns:
-        `True` if the decompiled function name matches the source function name.
-    """
-    if isinstance(uid, SourceFunction):
-        uid = uid.uid
-    return function.name == SourceFunction.get_function_name(uid)
-
-
-Mapper = Callable[[DecompiledFunction, SourceFunction], bool]
-"""
-Callable type describing a mapping function that determines if a decompiled function
-corresponds to a given source function.
-"""
-
-DEFAULT_MAPPER: Final[utils.DynamicSymbol] = (Path(__file__), "name_mapper")
-"""
-The default mapping function used to match decompiled functions to source functions.
-"""
-
-BUILTIN_MAPPERS: Final[utils.BuiltinSymbols] = {"name_mapper": DEFAULT_MAPPER}
-
-
 @dataclass(frozen=True)
 class DecompiledCodeDatasetConfig:
     """
@@ -518,6 +490,7 @@ class DecompiledCodeDataset(Dataset, Mapping[str, MappedFunction]):
         """
         return SourceCodeDataset(f for _, d in self.values() for f in d.values())
 
+    @deprecated('Use decompiler.DecompileConfig.symbol_remover = "pseudo-strip"')
     def to_stripped_dataset(self) -> "DecompiledCodeDataset":
         """
         Converts the decompiled code dataset into a stripped decompiled code dataset.
