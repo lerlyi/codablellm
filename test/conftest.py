@@ -1,87 +1,42 @@
-import json
 from pathlib import Path
-import subprocess
-from typing import Any, List, Sequence, Union
-from pytest import MonkeyPatch, TempPathFactory, fixture
+from typing import Sequence
 
-from codablellm.core import utils
-from codablellm.core import decompiler
+import pytest
+
 from codablellm.core.decompiler import Decompiler
-from codablellm.core.function import DecompiledFunction, DecompiledFunctionJSONObject
-
-FAILING_COMMAND = 'FAILED'
-
-
-@fixture(autouse=True)
-def mock_subprocess_check_output(monkeypatch: MonkeyPatch) -> None:
-
-    def check_output(command: Union[List[str], str], *args, **kwargs) -> Any:
-        if isinstance(command, str):
-            command = [command]
-        if command == [FAILING_COMMAND]:
-            raise subprocess.CalledProcessError(1, command)
-    monkeypatch.setattr(subprocess, 'check_output', check_output)
+from codablellm.core.function import DecompiledFunction
+from codablellm.core.utils import PathLike
 
 
-@fixture()
-def failing_command() -> utils.Command:
-    return FAILING_COMMAND
+@pytest.fixture
+def dummy_decompiled_function(tmp_path: Path):
+    """
+    Provides a reusable mock `DecompiledFunction` instance used across multiple tests.
+    """
+    return DecompiledFunction(
+        uid="test",
+        path=tmp_path.with_name("test.exe"),
+        name="test_function",
+        definition="int test() { return 0; }",
+        assembly="test: mov eax, 0",
+        architecture="x86_64",
+        address=0x400080,
+    )
 
 
-FAILING_BIN = 'FAILED'
+@pytest.fixture
+def mock_decompiler(
+    dummy_decompiled_function: DecompiledFunction,
+) -> Decompiler:
+    """
+    Provides a mock decompiler class for testing
+    """
 
+    class MockDecompiler(Decompiler):
+        def decompile(self, path: PathLike) -> Sequence[DecompiledFunction]:
+            return [dummy_decompiled_function]
 
-class MockDecompiler(Decompiler):
+        def get_stripped_function_name(self, address: int) -> str:
+            return f"FUN_{address:X}"
 
-    def get_functions(self, path: utils.PathLike) -> Sequence[DecompiledFunction]:
-        print('MockDecompiler called')
-        if path == FAILING_BIN:
-            raise subprocess.CalledProcessError(1, path)
-        path = Path(path)
-        decompiled_funcs_json: List[DecompiledFunctionJSONObject] = \
-            json.loads(path.read_text())
-        return [DecompiledFunction.from_json(func) for func in decompiled_funcs_json]
-
-
-def _decompile(path: utils.PathLike, *args: Any, **kwargs: Any) -> Sequence[DecompiledFunction]:
-    return MockDecompiler().get_functions(path)
-
-
-@fixture(autouse=True)
-def mock_decompile(monkeypatch: MonkeyPatch) -> None:
-    monkeypatch.setattr(decompiler, '_decompile', _decompile)
-
-
-@fixture(scope='session')
-def c_repository(tmp_path_factory: TempPathFactory) -> Path:
-
-    def create_file(file: Path, func_range: range) -> None:
-        file.write_text('#include <stdio.h>\n' +
-                        '\n'.join(f'\nvoid function{n}() {{' +
-                                  f'\n\tprintf("Function {n} in {file.name}\\n");' +
-                                  '\n}' for n in func_range))
-
-    path = tmp_path_factory.mktemp('c_repository')
-    create_file(path / 'file1.c', range(1, 4))
-    create_file(path / 'file2.c', range(4, 7))
-    create_file(path / 'file3.c', range(7, 9))
-    return path
-
-
-@fixture(scope='session')
-def c_bin(tmp_path_factory: TempPathFactory) -> Path:
-
-    def create_file(file: Path, func_range: range) -> None:
-        # This is what is causing the tests to break
-        file.write_text(json.dumps([DecompiledFunction(DecompiledFunction.create_uid(path, f'function{f}'),
-                                                       file,
-                                                       f'function{f}',
-                                                       f'void function{f}: ' +
-                                                       '\n<decompiled_def>',
-                                                       f'function{f}:' +
-                                                       '\n<decompiled_asm>',
-                                                       'x86_64').to_json() for f in func_range]))
-    path = tmp_path_factory.mktemp('c_bins')
-    c_bin = path / 'out.lib'
-    create_file(c_bin, range(1, 9))
-    return c_bin
+    return MockDecompiler()

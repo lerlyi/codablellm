@@ -2,17 +2,14 @@
 High-level functionality for creating code datasets from source code repositories.
 """
 
-from functools import partial
 import logging
 import shutil
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field, replace
 from typing import Collection, Generator, Literal, Optional, Sequence, no_type_check
 
-from prefect import flow, task
 
 from codablellm.core import utils
-from codablellm.core.dashboard import Progress
 from codablellm.core.extractor import ExtractConfig
 from codablellm.dataset import (
     DatasetGenerationMode,
@@ -44,7 +41,7 @@ def build(
     utils.execute_command(
         command,
         task=task,
-        ctx=Progress(task) if show_progress else nullcontext(),
+        ctx=nullcontext(),
         **utils.resolve_kwargs(error_handler=error_handler, cwd=cwd),
     )
 
@@ -68,7 +65,7 @@ def cleanup(
     utils.execute_command(
         command,
         task=task,
-        ctx=Progress(task) if show_progress else nullcontext(),
+        ctx=nullcontext(),
         **utils.resolve_kwargs(error_handler=error_handler, cwd=cwd),
     )
 

@@ -6,6 +6,7 @@ to use different backends for binary decompilation.
 """
 
 import logging
+import os
 import subprocess
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, replace
@@ -27,6 +28,7 @@ from tree_sitter import Node
 
 from codablellm.core.function import DecompiledFunction
 from codablellm.core.utils import (
+    CODABLELLM_MAX_WORKERS_ENVIRON_KEY,
     ASTEditor,
     BuiltinSymbols,
     DynamicSymbol,
@@ -65,8 +67,10 @@ def set(name: str, symbol: DynamicSymbol) -> None:
     Sets the decompiler used by `codablellm`.
 
     Parameters:
-        class_path:  The fully qualified class path (in the form `module.submodule.ClassName`) of the subclass of `Decompiler` to use.
+        name: The display name of the decompiler (e.g., "Ghidra", "Angr").
+        symbol: A tuple containing the file path and class name of the decompiler implementation.
     """
+
     global _decompiler
     file, class_name = symbol
     old_decompiler = _decompiler
@@ -82,6 +86,12 @@ def set(name: str, symbol: DynamicSymbol) -> None:
 
 
 def get() -> RegisteredDecompiler:
+    """
+    Returns the currently registered decompiler.
+
+    Returns:
+        A `RegisteredDecompiler` tuple containing the name and dynamic symbol of the active decompiler.
+    """
     return _decompiler
 
 
@@ -110,6 +120,10 @@ def pseudo_strip(
     with generated placeholders (e.g., `FUN_<addr>` or `sub_<addr>`), ensuring sensitive or original
     identifiers are removed. The resulting `DecompiledFunction` has an updated definition,
     stripped function name, and modified assembly code.
+
+    Parameters:
+        decompiler: The `Decompiler` instance to use for generating anonymized symbol names.
+        function: The `DecompiledFunction` to be stripped of its original symbols.
 
     Returns:
         A new `DecompiledFunction` instance with stripped symbols and updated assembly.
@@ -166,11 +180,31 @@ class Decompiler(ABC):
 
     @abstractmethod
     def get_stripped_function_name(self, address: int) -> str:
+        """
+        Returns the anonymized name for a function at the given address.
+
+        Parameters:
+            address: The memory address of the function.
+
+        Returns:
+            A stripped-down or anonymized function name (e.g., `FUN_<addr>`).
+        """
         pass
 
     def decompile_stripped(
         self, path: PathLike, strategy: "SymbolRemovalStrategy"
     ) -> Sequence[DecompiledFunction]:
+        """
+        Decompiles a binary and applies a symbol removal strategy.
+
+        Parameters:
+            path: Path to the binary to decompile.
+            strategy: Strategy for symbol removal. Options include "strip" (using the `strip` CLI tool)
+                    or "pseudo-strip" (AST-based anonymization of symbols).
+
+        Returns:
+            A sequence of `DecompiledFunction` objects with symbol-stripped metadata.
+        """
         logger.info(f"Stripping {repr(path)}...")
         if strategy == "strip":
             logger.debug(f"Decompiling {repr(path)} with symbols (pre-strip)...")
@@ -213,14 +247,14 @@ def create_decompiler(*args: Any, **kwargs: Any) -> Decompiler:
     Initializes an instance of the decompiler that is being used by `codablellm`.
 
     Parameters:
-        args:  Positional arguments to pass to the decompiler's `__init__` method.
-        kwargs:  Keyword arguments to pass to the decompiler's `__init__` method.
+        *args: Positional arguments to pass to the decompiler's `__init__` method.
+        **kwargs: Keyword arguments to pass to the decompiler's `__init__` method.
 
     Returns:
         An instance of the specified `Decompiler` subclass.
 
     Raises:
-        DecompilerNotFound: If the specified decompiler cannot be imported or if the class cannot be found in the specified module.
+        DecompilerNotFound: If the specified decompiler cannot be imported or if the class cannot be found.
     """
     decompiler_class: Type[Decompiler] = dynamic_import(_decompiler.symbol)
     return decompiler_class(*args, **kwargs)
@@ -248,12 +282,23 @@ class DecompileConfig:
     Keyword arguments to pass to the decompiler's `__init__` method.
     """
     symbol_remover: Optional[SymbolRemovalStrategy] = None
+    """
+    Optional strategy used to remove symbols from decompiled functions.
+    """
     recursive: bool = False
+    """
+    If True, recursively scan directories for binaries to decompile.
+    """
     strict: bool = False
+    """
+    If True, raise exceptions on decompilation failures; otherwise, continue and log warnings.
+    """
 
     def __post_init__(self) -> None:
-        if self.max_workers and self.max_workers < 1:
-            raise ValueError("Max workers must be a positive integer")
+        if self.max_workers:
+            if self.max_workers < 1:
+                raise ValueError("Max workers must be a positive integer")
+            os.environ[CODABLELLM_MAX_WORKERS_ENVIRON_KEY] = str(self.max_workers)
 
 
 @codablellm_low_level_task(name="decompile")
@@ -262,6 +307,17 @@ def decompile_task(
     path: PathLike,
     symbol_remover: Optional[SymbolRemovalStrategy],
 ) -> Sequence[DecompiledFunction]:
+    """
+    Prefect task for decompiling a single binary file using the specified decompiler.
+
+    Parameters:
+        decompiler: An instance of a `Decompiler`.
+        path: Path to the binary to decompile.
+        symbol_remover: Optional symbol removal strategy to apply.
+
+    Returns:
+        A list of `DecompiledFunction` instances extracted from the binary.
+    """
     if symbol_remover:
         return decompiler.decompile_stripped(path, symbol_remover)
     return decompiler.decompile(path)
@@ -313,6 +369,18 @@ def decompile_bins_task(
     return functions
 
 
-@codablellm_flow()
-def decompile(*paths: PathLike, config: DecompileConfig) -> List[DecompiledFunction]:
-    return decompile_bins_task(*paths, config=config)
+def decompile(
+    *paths: PathLike, config: DecompileConfig, as_flow: bool = True
+) -> List[DecompiledFunction]:
+    """
+    Decompiles one or more binaries.
+
+    Parameters:
+        paths: One or more paths pointing to binary files or directories.
+        config: A `DecompileConfig` instance specifying options for decompilation.
+
+    Returns:
+        A list of all decompiled functions from the provided binaries.
+    """
+    flow = codablellm_flow if as_flow else lambda: lambda x: x.fn
+    return flow()(decompile_bins_task)(*paths, config=config)
