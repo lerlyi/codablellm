@@ -104,7 +104,7 @@ def register(
         order: Optional order for insertion. If 'first', prepends the extractor; if 'last', appends it.
     """
     file, class_name = symbol
-    registered_extractor = RegisteredExtractor("C", (Path(file), class_name))
+    registered_extractor = RegisteredExtractor(language, (Path(file), class_name))
     if _EXTRACTORS.setdefault(language, registered_extractor) != registered_extractor:
         raise ValueError(f"{repr(language)} is already a registered extractor")
     if order:

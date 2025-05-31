@@ -62,12 +62,16 @@ def test_decompile_task_runs_with_symbol_removal(
     assert result[0].uid == "test"
 
 
-def test_decompile_filters_and_runs(
+def test_decompile(
     monkeypatch: pytest.MonkeyPatch,
     mock_decompiler: Decompiler,
     dummy_decompiled_function: DecompiledFunction,
     tmp_path: Path,
 ):
+    """ "
+    Tests the high-level `decompile` function's return decompiled functions.
+    """
+
     class MockPath:
         def __init__(self, path: str) -> None:
             self.path = path
@@ -86,7 +90,8 @@ def test_decompile_filters_and_runs(
 
     monkeypatch.setattr("codablellm.core.decompiler.Path", MockPath)
     monkeypatch.setattr(
-        "codablellm.core.decompiler.create_decompiler", lambda *args, **kwargs: mock_decompiler
+        "codablellm.core.decompiler.create_decompiler",
+        lambda *args, **kwargs: mock_decompiler,
     )
     monkeypatch.setattr(
         "codablellm.core.decompiler.is_binary", lambda *args, **kwargs: True
@@ -97,11 +102,12 @@ def test_decompile_filters_and_runs(
             return [dummy_decompiled_function]
 
     monkeypatch.setattr(
-        "codablellm.core.decompiler.decompile_task.submit", lambda *a, **kw: MockFuture()
+        "codablellm.core.decompiler.decompile_task.submit",
+        lambda *a, **kw: MockFuture(),
     )
 
     path = tmp_path / "test_dir"
     config = DecompileConfig(recursive=True)
-    results = decompiler.decompile(path, config=config, as_flow=False)
+    results = decompiler.decompile(path, config=config)
     assert isinstance(results, list)
     assert results[0].name == "test_function"
