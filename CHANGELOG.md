@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/dmanuel64/codablellm/compare/v1.2.0...v1.3.0) (2025-05-31)
+
+
+### Features
+
+* support for multiple languages ([56b2cb7](https://github.com/dmanuel64/codablellm/commit/56b2cb7a4fb200794204cc352fb7da0689ce02ec))
+
 ## [1.2.0](https://github.com/dmanuel64/codablellm/compare/v1.1.0...v1.2.0) (2025-04-09)
 
 
