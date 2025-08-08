@@ -75,7 +75,7 @@ class CExtractor(Extractor):
 
                 if not function_definition.text or not function_name.text:
                     raise ValueError(
-                        "Ожидалось, что function.name и function.definition будут содержать текст"
+                        "It was expected that function.name and function.definition would contain the text"
                     )
 
                 functions.append(
