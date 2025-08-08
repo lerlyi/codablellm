@@ -43,7 +43,7 @@ from prefect.task_runners import ThreadPoolTaskRunner
 from prefect_dask.task_runners import DaskTaskRunner
 from rich import print
 from rich.prompt import Prompt
-from tree_sitter import Node, Parser
+from tree_sitter import Node, Parser, Query, QueryCursor
 
 from codablellm.exceptions import ExtraNotInstalled, TSParsingError
 
@@ -231,7 +231,9 @@ class ASTEditor:
             TSParsingError: If an edit introduces parsing errors and `ensure_parsable` is `True`.
         """
         modified_nodes: Set[Node] = set()
-        matches = self.ast.language.query(query).matches(self.ast.root_node)
+        query_obj = Query(self.ast.language, query)
+        query_cursor = QueryCursor(query_obj)
+        matches = query_cursor.matches(self.ast.root_node)
         for idx in range(len(matches)):
             _, capture = matches.pop(idx)
             for group, replacement in groups_and_replacement.items():
@@ -243,9 +245,9 @@ class ASTEditor:
                             replacement = replacement(node)
                         self.edit_code(node, replacement)
                         modified_nodes.add(node)
-                        matches = self.ast.language.query(query).matches(
-                            self.ast.root_node
-                        )
+                        query_obj = Query(self.ast.language, query)
+                        query_cursor = QueryCursor(query_obj)
+                        matches = query_cursor.matches(self.ast.root_node)
                         break
 
 
