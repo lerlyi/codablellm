@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Final, Optional, Sequence, Set
 
 import tree_sitter_c as tsc
-# Импортируем все необходимые классы
 from tree_sitter import Language, Parser, Query, QueryCursor
 
 from codablellm.core.extractor import Extractor
