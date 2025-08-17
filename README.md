@@ -30,24 +30,21 @@ Because Prefect relies on a backend database, we recommend using the provided Do
 ```bash
 docker compose run --rm app \
   codablellm \
-  --url https://github.com/dmanuel64/codablellm/raw/refs/heads/main/examples/demo-c-repo.zip \
   /tmp/demo-c-repo \
   ./demo-c-repo.csv \
-  /tmp/demo-c-repo \
-  --strip \
-  --transform my_transform.transform \
+  /tmp/demo-c-repo/main_app \
+  --url https://github.com/dmanuel64/codablellm/raw/refs/heads/main/examples/demo-c-repo.zip \
+  --build make \
   --generation-mode temp-append \
-  --build make
+  --symbol-remover strip
 ```
-
 This command does the following:
-
-- Downloads and extracts a compressed C project archive from the given --url to `/tmp/demo-c-repo`.
-- Uses `/tmp/demo-c-repo` as both the source of extracted code and the location of compiled binaries.
-- Outputs a dataset to `./demo-c-repo.csv` (relative to your host machine).
-- Runs the build command (`make`) inside the extracted repo directory to generate binaries.
-- Applies transformations using the function defined in `my_transform.py` (i.e., `my_transform.transform`).
-- Uses --generation-mode `temp-append`, which appends transformed outputs to the original dataset, preserving both.
+--url https://... - URL for downloading the archive with source code
+--build make - command to build the project (in this case make is used)
+--generation-mode temp-append - dataset generation mode:
+temp - uses temporary directory
+append - appends transformed code to the original code in the output file
+--symbol-remover strip - removes debugging symbols from compiled binaries
 
 > **This uses the `app` service defined in `docker-compose.yml`, giving you access to the full environment including Prefect and PostgreSQL, which are required for managing flows and task state.**
 
