@@ -39,11 +39,17 @@ docker compose run --rm app \
   --symbol-remover strip
 ```
 This command does the following:
+
 --url https://... - URL for downloading the archive with source code
+
 --build make - command to build the project (in this case make is used)
+
 --generation-mode temp-append - dataset generation mode:
+
 temp - uses temporary directory
+
 append - appends transformed code to the original code in the output file
+
 --symbol-remover strip - removes debugging symbols from compiled binaries
 
 > **This uses the `app` service defined in `docker-compose.yml`, giving you access to the full environment including Prefect and PostgreSQL, which are required for managing flows and task state.**
