@@ -25,7 +25,7 @@ pip install codablellm
 CodableLLM uses [Prefect](https://www.prefect.io/) for orchestration and parallel processing.
 Because Prefect relies on a backend database, we recommend using the provided Docker Compose setup, which includes a configured PostgreSQL database.
 
-**Run an example extraction using Docker Compose**:
+**Run an example extraction using Docker Compose(Modified)**:
 
 ```bash
 docker compose run --rm app \
